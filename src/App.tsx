@@ -4,7 +4,11 @@ import {
   Sliders,
   Volume2,
   VolumeX,
-  Keyboard
+  Keyboard,
+  Star,
+  Sun,
+  Power,
+  CornerDownLeft
 } from 'lucide-react';
 
 // =========================================================================
@@ -832,41 +836,47 @@ export default function App() {
       )}
 
       {/* ÁREA CENTRAL PRINCIPAL: ESTACIÓN TOTAL (PROTAGONISTA) + PANEL DE REGULADORES */}
-      <main className="flex-1 flex flex-col xl:flex-row items-center justify-center p-4 lg:p-8 gap-8 max-w-[1550px] w-full mx-auto">
+      <main className="flex-1 flex flex-col 2xl:flex-row items-center justify-center p-4 lg:p-6 gap-6 max-w-[1550px] w-full mx-auto">
         
         {/* ============================================================== */}
         {/* CENTRO: HARDWARE ESTACIÓN TOTAL (Topcon ES-105)               */}
         {/* ============================================================== */}
         <section className="flex flex-col items-center">
           
-          {/* CHASIS AMARILLO INDUSTRIAL TOPCON CON TEXTURAS Y RELIEVE */}
-          <div className="w-full max-w-[490px] bg-gradient-to-b from-amber-500 via-amber-600 to-amber-700 rounded-3xl p-5 shadow-2xl border-4 border-amber-400/70 relative flex flex-col gap-4">
+          {/* CHASIS APAISADO / RECTÁNGULO HORIZONTAL (bg-neutral-900) */}
+          <div className="w-full max-w-[940px] bg-neutral-900 rounded-3xl p-5 md:p-6 shadow-2xl border-4 border-neutral-800 relative flex flex-col gap-4">
             
-            {/* Grabados en carcasa industrial */}
-            <div className="flex justify-between items-center px-2">
-              <span className="text-[10px] font-mono font-bold tracking-widest text-amber-950/80 uppercase">
-                LongLink™ • TSshield™
-              </span>
-              <span className="text-[10px] font-mono font-bold tracking-widest text-amber-950/80 uppercase">
-                IP66 WATERPROOF
-              </span>
-            </div>
-
-            {/* Placa de Marca frontal Topcon */}
-            <div className="flex items-center justify-between bg-neutral-900 px-4 py-2 rounded-xl border border-neutral-700 shadow-inner">
-              <span className="text-white font-black tracking-widest text-base italic">
-                TOPCON
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500"></span>
-                <span className="text-amber-400 font-mono text-xs font-extrabold tracking-wider bg-neutral-800 px-2 py-0.5 rounded border border-neutral-700">
+            {/* Grabados en carcasa industrial y placa de marca */}
+            <div className="flex items-center justify-between px-2 pb-2 border-b border-neutral-800">
+              <div className="flex items-center gap-3">
+                <span className="text-white font-black tracking-widest text-lg italic">
+                  TOPCON
+                </span>
+                <span className="text-amber-400 font-mono text-xs font-extrabold tracking-wider bg-neutral-950 px-2.5 py-0.5 rounded border border-neutral-800">
                   ES-105
                 </span>
               </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-mono font-bold tracking-widest text-neutral-400 uppercase hidden sm:inline">
+                  LongLink™ • TSshield™ • IP66 WATERPROOF
+                </span>
+                <div className="flex items-center gap-1.5 bg-neutral-950 px-2.5 py-0.5 rounded-full border border-neutral-800">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[9px] font-mono font-bold text-emerald-400">READY</span>
+                </div>
+              </div>
             </div>
 
-            {/* MARCO RECESIVO DE LA PANTALLA LCD */}
-            <div className="bg-neutral-950 p-3 rounded-2xl border-2 border-neutral-800 shadow-2xl flex flex-col">
+            {/* DISTRIBUCIÓN EN 2 COLUMNAS INTERNAS (GRID) */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+              
+              {/* ========================================================== */}
+              {/* LADO IZQUIERDO DEL PANEL (md:col-span-7)                   */}
+              {/* ========================================================== */}
+              <div className="md:col-span-7 flex flex-col gap-3">
+                
+                {/* MARCO RECESIVO DE LA PANTALLA LCD */}
+                <div className="bg-neutral-950 p-2.5 rounded-2xl border-2 border-neutral-800 shadow-inner flex flex-col">
               
               {/* PANTALLA LCD RETROILUMINADA (Fondo exacto #9CA3AF) */}
               <div
@@ -1236,176 +1246,235 @@ export default function App() {
               </div>
             </div>
 
-            {/* BOTONERA FÍSICA CON RELIEVE Y SOMBRAS */}
-            <div className="bg-neutral-900 p-4 rounded-2xl border-2 border-neutral-800 shadow-2xl flex flex-col gap-3">
-              
-              {/* FILA SUPERIOR: [F1] [F2] [F3] [F4] */}
-              <div className="grid grid-cols-4 gap-2">
-                {[1, 2, 3, 4].map(num => (
+                {/* FILA F1-F4: JUSTO DEBAJO DE LA PANTALLA (AMARILLO OSCURO, TEXTO NEGRO) */}
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 2, 3, 4].map(num => (
+                    <button
+                      key={num}
+                      onClick={() => handleFKey(num as 1 | 2 | 3 | 4)}
+                      className="h-9 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-neutral-950 font-black text-xs rounded-md shadow-md border-b-3 border-amber-700 active:border-b-0 active:translate-y-0.5 transition-all flex flex-col items-center justify-center cursor-pointer select-none"
+                    >
+                      <span className="leading-tight">F{num}</span>
+                      <span className="text-[8px] font-bold text-neutral-900 leading-none truncate max-w-full px-0.5">
+                        {fLabels[num - 1] || '•'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* FILA DE SISTEMA: [ESC] (Negro), [B.S.] (Negro), [SHIFT] (Azul claro), [FUNC] (Amarillo oscuro) */}
+                <div className="grid grid-cols-4 gap-2">
                   <button
-                    key={num}
-                    onClick={() => handleFKey(num as 1 | 2 | 3 | 4)}
-                    className="h-10 bg-gradient-to-b from-neutral-700 to-neutral-800 hover:from-neutral-600 hover:to-neutral-700 active:from-neutral-900 active:to-neutral-950 text-amber-300 font-bold text-xs rounded-lg shadow-md border-b-4 border-r border-neutral-950 active:border-b active:translate-y-0.5 transition-all flex flex-col items-center justify-center cursor-pointer"
+                    onClick={handleEscPress}
+                    className="h-9 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-white font-bold text-xs rounded-md shadow-md border-b-3 border-neutral-950 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center cursor-pointer select-none"
+                    title="ESC: Salir o ir a Menú DATO"
                   >
-                    <span>F{num}</span>
-                    <span className="text-[9px] text-slate-300 font-normal">
-                      {fLabels[num - 1] || '•'}
-                    </span>
+                    ESC
                   </button>
-                ))}
+                  <button
+                    onClick={() => handleKeypadPress('BS')}
+                    className="h-9 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-white font-bold text-xs rounded-md shadow-md border-b-3 border-neutral-950 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center cursor-pointer select-none"
+                    title="B.S.: Borrar carácter"
+                  >
+                    B.S.
+                  </button>
+                  <button
+                    onClick={handleShiftPress}
+                    className="h-9 bg-sky-400 hover:bg-sky-300 active:bg-sky-500 text-neutral-950 font-black text-xs rounded-md shadow-md border-b-3 border-sky-600 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center gap-1 cursor-pointer select-none"
+                    title="SHIFT: Alternar modo prisma / alfanumérico"
+                  >
+                    <span className="text-[10px] leading-none">⇧</span>
+                    <span className="text-[10px] font-black tracking-tight">SHIFT</span>
+                  </button>
+                  <button
+                    onClick={handleFuncPress}
+                    className="h-9 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-neutral-950 font-black text-xs rounded-md shadow-md border-b-3 border-amber-700 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center cursor-pointer select-none"
+                    title="FUNC: Alternar Pág 1 / Pág 2"
+                  >
+                    FUNC
+                  </button>
+                </div>
+
+                {/* BARRA ALFANUMÉRICA COMPACTA (Desplegada en campos de texto) */}
+                {(isCurrentFieldAlpha || isAlphaKeyboardOpen) && (
+                  <div className="bg-neutral-950 p-2 rounded-xl border border-neutral-800 space-y-1 animate-in fade-in">
+                    <div className="flex justify-between items-center text-[10px] text-amber-400 font-bold px-1">
+                      <span>TEXTO ALFANUMÉRICO ACTIVO</span>
+                      <span className="text-slate-400 text-[9px]">Usa teclas blancas o atajos</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {['BM-', 'P-', 'E-', 'EST-', 'PTO-'].map(pref => (
+                        <button
+                          key={pref}
+                          onClick={() => {
+                            playBeep(1200, 0.04);
+                            setInputBuffer(pref);
+                          }}
+                          className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px] font-mono font-bold cursor-pointer"
+                        >
+                          {pref}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {['A', 'B', 'C', 'D', 'E', 'M', 'P', 'R', 'V', '_'].map(char => (
+                        <button
+                          key={char}
+                          onClick={() => {
+                            playBeep(1150, 0.04);
+                            setInputBuffer(prev => prev + char);
+                          }}
+                          className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-[11px] font-mono font-bold flex items-center justify-center cursor-pointer border border-neutral-700"
+                        >
+                          {char}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* BARRA ALFANUMÉRICA COMPACTA (Desplegada en campos de texto) */}
-              {(isCurrentFieldAlpha || isAlphaKeyboardOpen) && (
-                <div className="bg-neutral-950 p-2 rounded-xl border border-neutral-800 space-y-1 animate-in fade-in">
-                  <div className="flex justify-between items-center text-[10px] text-amber-400 font-bold px-1">
-                    <span>TECLADO ALFANUMÉRICO ACTIVO</span>
-                    <span className="text-slate-400 text-[9px]">SFT alterna</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {['BM-', 'P-', 'E-', 'EST-', 'PTO-'].map(pref => (
-                      <button
-                        key={pref}
-                        onClick={() => {
-                          playBeep(1200, 0.04);
-                          setInputBuffer(pref);
-                        }}
-                        className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px] font-mono font-bold cursor-pointer"
-                      >
-                        {pref}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {['A', 'B', 'C', 'D', 'E', 'M', 'P', 'R', 'V', '_'].map(char => (
-                      <button
-                        key={char}
-                        onClick={() => {
-                          playBeep(1150, 0.04);
-                          setInputBuffer(prev => prev + char);
-                        }}
-                        className="w-6 h-6 bg-neutral-800 hover:bg-neutral-700 text-white rounded text-[11px] font-mono font-bold flex items-center justify-center cursor-pointer border border-neutral-700"
-                      >
-                        {char}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* SECCIÓN INFERIOR: TECLADO NUMÉRICO (IZQ) Y FLECHAS CON ENTER AZUL (DER) */}
-              <div className="grid grid-cols-12 gap-3 pt-1">
+              {/* ========================================================== */}
+              {/* LADO DERECHO DEL PANEL (md:col-span-5)                    */}
+              {/* ========================================================== */}
+              <div className="md:col-span-5 flex flex-col gap-3">
                 
-                {/* LADO IZQUIERDO: SISTEMA + NUMÉRICO (7 cols) */}
-                <div className="col-span-7 flex flex-col gap-2">
-                  
-                  {/* Botones de sistema grises: [ESC], [BS], [SFT], [FUNC] */}
-                  <div className="grid grid-cols-4 gap-1.5">
-                    <button
-                      onClick={handleEscPress}
-                      className="h-8 bg-neutral-600 hover:bg-neutral-500 active:bg-neutral-700 text-white font-bold text-[10px] rounded shadow-md border-b-2 border-neutral-800 active:border-b-0 active:translate-y-0.5 transition-all cursor-pointer"
-                      title="ESC: Salir o ir a Menú DATO"
-                    >
-                      ESC
-                    </button>
-                    <button
-                      onClick={() => handleKeypadPress('BS')}
-                      className="h-8 bg-neutral-600 hover:bg-neutral-500 active:bg-neutral-700 text-white font-bold text-[10px] rounded shadow-md border-b-2 border-neutral-800 active:border-b-0 active:translate-y-0.5 transition-all cursor-pointer"
-                      title="Backspace / Borrar carácter"
-                    >
-                      BS
-                    </button>
-                    <button
-                      onClick={handleShiftPress}
-                      className="h-8 bg-neutral-600 hover:bg-neutral-500 active:bg-neutral-700 text-amber-300 font-bold text-[10px] rounded shadow-md border-b-2 border-neutral-800 active:border-b-0 active:translate-y-0.5 transition-all cursor-pointer"
-                      title="Shift: Ciclar modo Prisma / Tarjeta / Directa"
-                    >
-                      SFT
-                    </button>
-                    <button
-                      onClick={handleFuncPress}
-                      className="h-8 bg-neutral-600 hover:bg-neutral-500 active:bg-neutral-700 text-amber-300 font-bold text-[10px] rounded shadow-md border-b-2 border-neutral-800 active:border-b-0 active:translate-y-0.5 transition-all cursor-pointer"
-                      title="FUNC: Alternar Pág 1 / Pág 2"
-                    >
-                      FUNC
-                    </button>
-                  </div>
-
-                  {/* Teclado numérico, punto y signo negativo */}
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', '-'].map(key => (
-                      <button
-                        key={key}
-                        onClick={() => handleKeypadPress(key)}
-                        className="h-9 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-white font-mono font-bold text-sm rounded shadow-md border-b-2 border-r border-neutral-950 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center cursor-pointer"
-                      >
-                        {key}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* LADO DERECHO: FLECHAS EN CRUZ + BOTÓN ENTER AZUL (5 cols) */}
-                <div className="col-span-5 flex flex-col items-center justify-center gap-1.5 p-1 bg-neutral-950/60 rounded-xl border border-neutral-800">
-                  
-                  {/* Flecha ARRIBA */}
+                {/* FILA SUPERIOR ESPECIAL: 3 BOTONES PEQUEÑOS (ESTRELLA, ILUMINACIÓN/SOL, ENCENDIDO POWER) */}
+                <div className="flex items-center justify-between gap-2 bg-neutral-950/70 p-1.5 rounded-xl border border-neutral-800">
                   <button
-                    onClick={() => handleArrow('UP')}
-                    className="w-10 h-8 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-slate-300 rounded shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer"
-                    title="Navegar Arriba"
+                    onClick={() => playBeep(1600, 0.05)}
+                    className="flex-1 h-8 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-amber-400 rounded-md shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer transition-all"
+                    title="Tecla Rápida ★"
                   >
-                    ▲
+                    <Star size={14} className="fill-amber-400 text-amber-400" />
                   </button>
 
-                  {/* Fila Central: IZQ - ENTER AZUL - DER */}
-                  <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      playBeep(1350, 0.05);
+                      setIsBacklightOn(b => !b);
+                    }}
+                    className="flex-1 h-8 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-yellow-300 rounded-md shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer transition-all"
+                    title="Iluminación Pantalla (Backlight)"
+                  >
+                    <Sun size={15} />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      playBeep(850, 0.08);
+                      setScreenState('TILT');
+                    }}
+                    className="flex-1 h-8 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-neutral-950 font-bold rounded-md shadow-md border-b-2 border-emerald-700 active:border-b-0 active:translate-y-0.5 flex items-center justify-center gap-1 cursor-pointer transition-all"
+                    title="Encendido / Reset a TILT"
+                  >
+                    <Power size={13} className="stroke-[2.5]" />
+                    <span className="text-[10px] font-black uppercase">PWR</span>
+                  </button>
+                </div>
+
+                {/* TECLADO ALFANUMÉRICO (GRID 3x4): BOTONES DE COLOR BLANCO CON TEXTO NEGRO */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { num: '7', sub: 'ABC', val: '7' },
+                    { num: '8', sub: 'DEF', val: '8' },
+                    { num: '9', sub: 'GHI', val: '9' },
+                    { num: '4', sub: 'JKL', val: '4' },
+                    { num: '5', sub: 'MNO', val: '5' },
+                    { num: '6', sub: 'PQR', val: '6' },
+                    { num: '1', sub: 'STU', val: '1' },
+                    { num: '2', sub: 'VWX', val: '2' },
+                    { num: '3', sub: 'YZ!', val: '3' },
+                    { num: '0', sub: '/_&', val: '0' },
+                    { num: '.', sub: '*?$', val: '.' },
+                    { num: '±', sub: '+/-', val: '-' }
+                  ].map(item => (
+                    <button
+                      key={item.num + item.sub}
+                      onClick={() => handleKeypadPress(item.val)}
+                      className="h-10 bg-white hover:bg-gray-100 active:bg-gray-200 text-neutral-900 rounded-lg shadow-md border-b-3 border-gray-400 active:border-b-0 active:translate-y-0.5 transition-all flex flex-col items-center justify-center cursor-pointer select-none"
+                    >
+                      <span className="font-extrabold text-sm leading-tight text-neutral-950 font-mono">
+                        {item.num}
+                      </span>
+                      <span className="text-[9px] font-bold text-neutral-600 tracking-tighter leading-none">
+                        {item.sub}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* NAVEGACIÓN (ABAJO A LA DERECHA): PAD CIRCULAR BLANCO (D-PAD) + BOTÓN [ENT] AZUL CLARO */}
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  
+                  {/* Pad circular blanco (D-pad) grande con 4 flechas negras integradas */}
+                  <div className="relative w-28 h-28 bg-gradient-to-b from-white to-gray-200 rounded-full shadow-lg border-2 border-gray-300 flex items-center justify-center p-1 select-none shrink-0">
+                    {/* Flecha ARRIBA */}
+                    <button
+                      onClick={() => handleArrow('UP')}
+                      className="absolute top-1 left-1/2 -translate-x-1/2 w-8 h-7 text-neutral-900 hover:text-black active:scale-90 flex items-center justify-center cursor-pointer transition-transform"
+                      title="Navegar Arriba"
+                    >
+                      <span className="text-base font-black">▲</span>
+                    </button>
+
+                    {/* Flecha IZQUIERDA */}
                     <button
                       onClick={() => handleArrow('LEFT')}
-                      className="w-8 h-10 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-slate-300 rounded shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer"
+                      className="absolute left-1 top-1/2 -translate-y-1/2 w-7 h-8 text-neutral-900 hover:text-black active:scale-90 flex items-center justify-center cursor-pointer transition-transform"
                       title="Navegar Izquierda"
                     >
-                      ◄
+                      <span className="text-base font-black">◄</span>
                     </button>
 
-                    {/* BOTÓN ENTER CENTRAL EN COLOR AZUL (Distintivo Topcon ES) */}
-                    <button
-                      onClick={handleEnterPress}
-                      className="w-12 h-12 bg-gradient-to-b from-blue-500 via-blue-600 to-blue-700 hover:from-blue-400 hover:to-blue-600 active:from-blue-800 active:to-blue-900 text-white font-black text-xs rounded-full shadow-lg border-b-4 border-r-2 border-blue-950 active:border-b active:translate-y-0.5 transition-all flex flex-col items-center justify-center cursor-pointer"
-                      title="Aceptar / Confirmar (Enter)"
-                    >
-                      <span>ENT</span>
-                    </button>
+                    {/* Centro D-Pad */}
+                    <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-300 shadow-inner flex items-center justify-center pointer-events-none">
+                      <div className="w-2.5 h-2.5 rounded-full bg-gray-400"></div>
+                    </div>
 
+                    {/* Flecha DERECHA */}
                     <button
                       onClick={() => handleArrow('RIGHT')}
-                      className="w-8 h-10 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-slate-300 rounded shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-8 text-neutral-900 hover:text-black active:scale-90 flex items-center justify-center cursor-pointer transition-transform"
                       title="Navegar Derecha"
                     >
-                      ►
+                      <span className="text-base font-black">►</span>
+                    </button>
+
+                    {/* Flecha ABAJO */}
+                    <button
+                      onClick={() => handleArrow('DOWN')}
+                      className="absolute bottom-1 left-1/2 -translate-x-1/2 w-8 h-7 text-neutral-900 hover:text-black active:scale-90 flex items-center justify-center cursor-pointer transition-transform"
+                      title="Navegar Abajo"
+                    >
+                      <span className="text-base font-black">▼</span>
                     </button>
                   </div>
 
-                  {/* Flecha ABAJO */}
+                  {/* Botón [ENT] cuadrado/rectangular de color Azul claro */}
                   <button
-                    onClick={() => handleArrow('DOWN')}
-                    className="w-10 h-8 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-slate-300 rounded shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer"
-                    title="Navegar Abajo"
+                    onClick={handleEnterPress}
+                    className="flex-1 h-28 bg-sky-400 hover:bg-sky-300 active:bg-sky-500 text-neutral-950 font-black rounded-2xl shadow-lg border-b-4 border-r border-sky-600 active:border-b-0 active:translate-y-0.5 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer select-none"
+                    title="Aceptar / Confirmar (ENT)"
                   >
-                    ▼
+                    <CornerDownLeft size={24} className="stroke-[3]" />
+                    <span className="text-sm font-black tracking-wider">ENT</span>
                   </button>
                 </div>
+
               </div>
 
-              {/* Pie de chasis con estado de nivel */}
-              <div className="flex items-center justify-between pt-1 border-t border-neutral-800/80 text-[10px] text-neutral-400">
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  Compensador Dual Activo
-                </span>
-                <span className="font-mono text-[9px] text-neutral-500">
-                  TOPCON CORP. TOKYO
-                </span>
-              </div>
+            </div>
+
+            {/* Pie de chasis con estado de nivel */}
+            <div className="flex items-center justify-between pt-2 border-t border-neutral-800 text-[10px] text-neutral-400">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                Compensador Bi-axial Calibrado
+              </span>
+              <span className="font-mono text-[9px] text-neutral-500">
+                TOPCON POSITIONING SYSTEMS, INC.
+              </span>
             </div>
           </div>
         </section>

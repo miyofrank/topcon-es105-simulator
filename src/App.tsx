@@ -43,29 +43,49 @@ export interface TopoPoint {
   date?: string;
 }
 
+interface KnownPoint {
+  PTO: string;
+  N: number;
+  E: number;
+  Z: number;
+  CD?: string;
+}
+
 // Modos de medición EDM Topcon (Ciclados con la tecla física [SFT])
 type EdmMode = 'prism' | 'sheet' | 'non_prism';
 
 // ESTADOS ESTRICTOS DE LA MÁQUINA LCD TOPCON ES-105:
-// 'TILT'      : Compensador Digital de arranque (Nivel Electrónico X/Y). F1=[OK]
-// 'MAIN'      : Pantalla Principal en vivo (V, HD, SD). Botón FUNC alterna Pág 1 / Pág 2.
-// 'COORD_MENU': Menú COORD (1. Occ.Orien., 2. Observación)
-// 'OCC_ORIEN' : Estacionamiento (N0, E0, Z0, HI). F3=[E.RXYZ], F4=[REG]
-// 'ERXYZ'     : Orientar por Punto Atrás (NBS, EBS, ZBS). F4=[OK] -> Calcula Azimut Inicial
-// 'OBS'       : Levantamiento (HR, CD, PTO). F3=[AUTO] dispara distanciómetro y auto-incrementa PTO
-// 'DATO_MENU' : Menú DATO accesible con ESC (1. TRABAJO, 2. DATOS CONOCIDOS, 3. EXPORTAR A USB)
-// 'JOB'       : Edición de Nombre de Proyecto (Alfanumérico, ej: PROYECTO1)
-// 'KNOWN_PTS' : Visor interno en LCD de puntos guardados en la memoria interna
+// 'TILT'           : Compensador Digital de arranque (Nivel Electrónico X/Y). F1=[OK]
+// 'MAIN'           : Pantalla Principal en vivo (V, HD, SD). Botón FUNC alterna Pág 1 / Pág 2.
+// 'COORD_MENU'     : Menú COORD (1. Occ.Orien., 2. Observación)
+// 'OCC_ORIEN'      : Estacionamiento (N0, E0, Z0, HI). F1=[LEER], F3=[E.RXYZ], F4=[REG]
+// 'ERXYZ'          : Orientar por Punto Atrás (NBS, EBS, ZBS). F1=[LEER], F4=[OK] -> Comprobación
+// 'CHECK_BS'       : Comprobación de Orientación con disparo EDM. Muestra dHD, dZ. F1=[REMED], F4=[OK]
+// 'SELECT_KNOWN_PT': Selector de Base/Datos conocidos para [LEER]. F4=[CARG]
+// 'OBS'            : Levantamiento (HR, CD, PTO). F3=[AUTO] dispara distanciómetro y auto-incrementa PTO
+// 'DATO_MENU'      : Menú DATO accesible con ESC o Pág 2 (1. TRABAJO, 2. DATOS CONOCIDOS)
+// 'JOB'            : Edición de Nombre de Proyecto (Alfanumérico, ej: PROYECTO1)
+// 'KNOWN_PTS'      : Visor y gestión de coordenadas base (knownPoints). F1=[NUEV]
+// 'KNOWN_NEW'      : Formulario de ingreso de nueva base (PTO, N, E, Z, CD). F4=[REG]
+// 'USB_MENU'       : Menú USB principal (1. T-Type, 2. S-Type)
+// 'USB_TTYPE'      : Menú T-Type (1. Guardar Datos, 2. Cargar Datos)
+// 'USB_SAVE_JOB'   : Guardar datos a USB (Seleccionar Trabajo y [ENT] para exportar CSV)
 type ScreenState =
   | 'TILT'
   | 'MAIN'
   | 'COORD_MENU'
   | 'OCC_ORIEN'
   | 'ERXYZ'
+  | 'CHECK_BS'
+  | 'SELECT_KNOWN_PT'
   | 'OBS'
   | 'DATO_MENU'
   | 'JOB'
-  | 'KNOWN_PTS';
+  | 'KNOWN_PTS'
+  | 'KNOWN_NEW'
+  | 'USB_MENU'
+  | 'USB_TTYPE'
+  | 'USB_SAVE_JOB';
 
 // Conversión sexagesimal estándar topográfica (DD°MM'SS")
 export const formatDMS = (deg: number): string => {
@@ -122,11 +142,39 @@ export default function App() {
 
   const [jobName, setJobName] = useState<string>('PROYECTO1');
 
-  // Memoria interna de puntos de la Estación Total
+  // Memoria interna de puntos de la Estación Total (Puntos levantados)
   const [points, setPoints] = useState<TopoPoint[]>([
     { PTO: 'EST-1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'ESTACION', type: 'station' },
     { PTO: 'BS-1', N: 1050.0, E: 1050.0, Z: 100.0, CD: 'PTO_ATRAS', type: 'backsight' }
   ]);
+
+  // 1. MÓDULO DE DATOS CONOCIDOS: Estado separado para bases pre-cargadas
+  const [knownPoints, setKnownPoints] = useState<KnownPoint[]>([
+    { PTO: 'BM-1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'BASE_PRIN' },
+    { PTO: 'BM-2', N: 1050.0, E: 1050.0, Z: 100.0, CD: 'REF_ATRAS' },
+    { PTO: 'DELTA-1', N: 1080.25, E: 960.50, Z: 102.15, CD: 'VERTICE' }
+  ]);
+  const [viewKnownIdx, setViewKnownIdx] = useState<number>(0);
+  const [readTargetContext, setReadTargetContext] = useState<'OCC' | 'BS'>('OCC');
+  const [newKnownPoint, setNewKnownPoint] = useState<KnownPoint>({
+    PTO: 'BM-3',
+    N: 1000.0,
+    E: 1000.0,
+    Z: 100.0,
+    CD: 'BASE'
+  });
+
+  // Datos para comprobación de orientación y cálculo de error delta
+  const [checkBsData, setCheckBsData] = useState<{
+    dHD: number;
+    dZ: number;
+    azTeo: number;
+    dhTeo: number;
+    dhMed: number;
+  }>({ dHD: 0, dZ: 0, azTeo: 45, dhTeo: 70.71, dhMed: 70.71 });
+
+  // Selección en menús USB
+  const [usbMenuSelection, setUsbMenuSelection] = useState<number>(1);
 
   // =========================================================================
   // 3. REGULADORES DE TERRENO (Simulación del Mundo Físico / Láser Exterior)
@@ -144,7 +192,6 @@ export default function App() {
   const [edmMode, setEdmMode] = useState<EdmMode>('prism'); // Alternado con botón SFT
   const [menuSelection, setMenuSelection] = useState<number>(1);
   const [activeField, setActiveField] = useState<number>(0);
-  const [viewPointIdx, setViewPointIdx] = useState<number>(0); // Para visor LCD de DATOS CONOCIDOS
   const [inputBuffer, setInputBuffer] = useState<string>('');
   const [lcdMessage, setLcdMessage] = useState<string | null>(null);
   const [isMeasuring, setIsMeasuring] = useState<boolean>(false);
@@ -202,13 +249,20 @@ export default function App() {
       if (activeField === 2) setInputBuffer(target.PTO);
     } else if (screenState === 'JOB') {
       setInputBuffer(jobName);
+    } else if (screenState === 'KNOWN_NEW') {
+      if (activeField === 0) setInputBuffer(newKnownPoint.PTO);
+      if (activeField === 1) setInputBuffer(String(newKnownPoint.N));
+      if (activeField === 2) setInputBuffer(String(newKnownPoint.E));
+      if (activeField === 3) setInputBuffer(String(newKnownPoint.Z));
+      if (activeField === 4) setInputBuffer(newKnownPoint.CD ?? '');
     }
-  }, [screenState, activeField, station, backsight, target, jobName]);
+  }, [screenState, activeField, station, backsight, target, jobName, newKnownPoint]);
 
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
     if (screenState === 'JOB') return true;
     if (screenState === 'OBS' && (activeField === 1 || activeField === 2)) return true; // CD o PTO
+    if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     return false;
   }, [screenState, activeField]);
 
@@ -232,11 +286,17 @@ export default function App() {
       if (inputBuffer.trim()) {
         setJobName(inputBuffer.trim());
       }
+    } else if (screenState === 'KNOWN_NEW') {
+      if (activeField === 0) setNewKnownPoint(p => ({ ...p, PTO: inputBuffer.trim() || 'BASE' }));
+      if (activeField === 1 && !isNaN(val)) setNewKnownPoint(p => ({ ...p, N: val }));
+      if (activeField === 2 && !isNaN(val)) setNewKnownPoint(p => ({ ...p, E: val }));
+      if (activeField === 3 && !isNaN(val)) setNewKnownPoint(p => ({ ...p, Z: val }));
+      if (activeField === 4) setNewKnownPoint(p => ({ ...p, CD: inputBuffer.trim() }));
     }
   }, [screenState, activeField, inputBuffer]);
 
   // =========================================================================
-  // 5. ACCIÓN ESPECIAL: DESCARGA AUTOMÁTICA A USB (¡CERO BOTONES WEB!)
+  // 5. ACCIÓN ESPECIAL: DESCARGA AUTOMÁTICA A USB (DESDE EL FLUJO USB REAL)
   // =========================================================================
   const exportarAUSB = useCallback(() => {
     playLaserBeep();
@@ -267,20 +327,53 @@ export default function App() {
   }, [points, jobName, playLaserBeep]);
 
   // =========================================================================
-  // 6. MÓDULO DE CÁLCULOS TOPOGRÁFICOS (REQUISITO CRÍTICO GEODÉSICO)
+  // 6. MÓDULO DE CÁLCULOS TOPOGRÁFICOS Y COMPROBACIÓN
   // =========================================================================
 
-  // Orientación por Punto Atrás (E.RXYZ)
-  const ejecutarOrientacion = useCallback(() => {
+  // 4. CÁLCULO DEL ERROR DE ORIENTACIÓN: Disparo de comprobación leyendo Distancia Inclinada (SD)
+  const iniciarComprobacionOrientacion = useCallback(() => {
+    setIsMeasuring(true);
+    playLaserBeep();
+
+    setTimeout(() => {
+      setIsMeasuring(false);
+
+      // Coordenadas teóricas entre estación y punto atrás
+      const deltaN = backsight.N - station.N;
+      const deltaE = backsight.E - station.E;
+      const dhTeo = Math.sqrt(deltaN * deltaN + deltaE * deltaE);
+      const azTeo = ((Math.atan2(deltaE, deltaN) * (180 / Math.PI)) + 360) % 360;
+
+      // Lectura del distanciómetro simulado (Panel de Reguladores)
+      const radV = envV * (Math.PI / 180);
+      const dhMed = envSD * Math.sin(radV);
+      const dvMed = envSD * Math.cos(radV);
+      const zMed = station.Z + station.HI + dvMed - target.HR;
+
+      // Cálculo estricto del error delta
+      const dHD = dhMed - dhTeo;
+      const dZ = zMed - backsight.Z;
+
+      setCheckBsData({
+        dHD: parseFloat(dHD.toFixed(3)),
+        dZ: parseFloat(dZ.toFixed(3)),
+        azTeo,
+        dhTeo,
+        dhMed
+      });
+
+      setScreenState('CHECK_BS');
+    }, 380);
+  }, [backsight, station, target.HR, envV, envSD, playLaserBeep]);
+
+  // Confirmar y Fijar Estación tras Comprobación de Orientación
+  const ejecutarOrientacionFinal = useCallback(() => {
     playBeep(1600, 0.09);
     const deltaN = backsight.N - station.N;
     const deltaE = backsight.E - station.E;
 
-    // Azimut Inicial = Math.atan2(deltaE, deltaN) * (180 / Math.PI)
     let azimut = Math.atan2(deltaE, deltaN) * (180 / Math.PI);
-    if (azimut < 0) {
-      azimut += 360;
-    }
+    if (azimut < 0) azimut += 360;
 
     const distDH = Math.sqrt(deltaN * deltaN + deltaE * deltaE);
     setAzimutInicial(azimut);
@@ -297,12 +390,13 @@ export default function App() {
     });
 
     playLaserBeep();
-    setLcdMessage(`¡ORIENTADO OK!\nAZ: ${formatDMS(azimut)}\nDH: ${distDH.toFixed(3)}m`);
+    const signDHD = checkBsData.dHD >= 0 ? '+' : '';
+    setLcdMessage(`¡ESTACIÓN FIJADA!\nAZ: ${formatDMS(azimut)}\ndHD: ${signDHD}${checkBsData.dHD.toFixed(3)}m\nDH: ${distDH.toFixed(3)}m`);
 
     setTimeout(() => {
       setScreenState('COORD_MENU');
     }, 1800);
-  }, [backsight, station, playBeep, playLaserBeep]);
+  }, [backsight, station, checkBsData.dHD, playBeep, playLaserBeep]);
 
   // Disparo Láser y Levantamiento [AUTO]
   const ejecutarLevantamientoAuto = useCallback(() => {
@@ -400,15 +494,34 @@ export default function App() {
       return;
     }
 
-    // Selección numérica en menú DATO
+    // Selección numérica en menú DATO (Solo 1. TRABAJO y 2. DATOS CONOCIDOS)
     if (screenState === 'DATO_MENU') {
       if (key === '1') { setScreenState('JOB'); setInputBuffer(jobName); }
-      else if (key === '2') { setScreenState('KNOWN_PTS'); setViewPointIdx(0); }
-      else if (key === '3') { exportarAUSB(); }
+      else if (key === '2') { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
       return;
     }
 
-    if (screenState === 'TILT' || screenState === 'MAIN' || screenState === 'KNOWN_PTS') return;
+    // Selección numérica en menú USB
+    if (screenState === 'USB_MENU') {
+      if (key === '1') { setScreenState('USB_TTYPE'); setUsbMenuSelection(1); }
+      else if (key === '2') { setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE'); }
+      return;
+    }
+
+    // Selección numérica en menú USB T-TYPE
+    if (screenState === 'USB_TTYPE') {
+      if (key === '1') { setScreenState('USB_SAVE_JOB'); }
+      else if (key === '2') { setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO'); }
+      return;
+    }
+
+    if (
+      screenState === 'TILT' ||
+      screenState === 'MAIN' ||
+      screenState === 'KNOWN_PTS' ||
+      screenState === 'SELECT_KNOWN_PT' ||
+      screenState === 'CHECK_BS'
+    ) return;
 
     if (key === 'BS') {
       setInputBuffer(prev => prev.slice(0, -1));
@@ -421,7 +534,7 @@ export default function App() {
     } else {
       setInputBuffer(prev => prev + key);
     }
-  }, [screenState, inputBuffer, jobName, exportarAUSB, playBeep]);
+  }, [screenState, inputBuffer, jobName, playBeep]);
 
   // Botón físico central AZUL: ENTER
   const handleEnterPress = useCallback(() => {
@@ -453,9 +566,7 @@ export default function App() {
         setInputBuffer(jobName);
       } else if (menuSelection === 2) {
         setScreenState('KNOWN_PTS');
-        setViewPointIdx(0);
-      } else if (menuSelection === 3) {
-        exportarAUSB();
+        setViewKnownIdx(0);
       }
       return;
     }
@@ -472,6 +583,57 @@ export default function App() {
       return;
     }
 
+    // Visor de Datos Conocidos
+    if (screenState === 'KNOWN_PTS') {
+      setScreenState('DATO_MENU');
+      return;
+    }
+
+    // 1. Guardar nueva base en KNOWN_NEW
+    if (screenState === 'KNOWN_NEW') {
+      if (activeField < 4) {
+        setActiveField(f => f + 1);
+      } else {
+        setKnownPoints(prev => [...prev, newKnownPoint]);
+        playLaserBeep();
+        setLcdMessage(`BASE ${newKnownPoint.PTO}\nGUARDADA EN MEMORIA`);
+        setTimeout(() => {
+          setScreenState('KNOWN_PTS');
+          setViewKnownIdx(knownPoints.length);
+        }, 1200);
+      }
+      return;
+    }
+
+    // 2. Cargar base seleccionada con [LEER]
+    if (screenState === 'SELECT_KNOWN_PT') {
+      const selected = knownPoints[viewKnownIdx];
+      if (selected) {
+        playLaserBeep();
+        if (readTargetContext === 'OCC') {
+          setStation(s => ({
+            ...s,
+            N: selected.N,
+            E: selected.E,
+            Z: selected.Z
+          }));
+          setLcdMessage(`BASE ${selected.PTO}\nCARGADA EN N0,E0,Z0`);
+          setScreenState('OCC_ORIEN');
+          setActiveField(3); // Pasa a Altura Instrumento HI
+        } else {
+          setBacksight({
+            N: selected.N,
+            E: selected.E,
+            Z: selected.Z
+          });
+          setLcdMessage(`BASE ${selected.PTO}\nCARGADA EN PTO ATRÁS`);
+          setScreenState('ERXYZ');
+          setActiveField(0);
+        }
+      }
+      return;
+    }
+
     // Formulario de Estacionamiento
     if (screenState === 'OCC_ORIEN') {
       if (activeField < 3) {
@@ -480,20 +642,82 @@ export default function App() {
         setActiveField(0);
         setLcdMessage('DATOS ESTACIÓN\nGUARDADOS');
       }
-    } else if (screenState === 'ERXYZ') {
+      return;
+    }
+
+    // Formulario de Orientación: lanza disparo de comprobación
+    if (screenState === 'ERXYZ') {
       if (activeField < 2) {
         setActiveField(f => f + 1);
       } else {
-        ejecutarOrientacion();
+        iniciarComprobacionOrientacion();
       }
-    } else if (screenState === 'OBS') {
+      return;
+    }
+
+    // 4. Confirmación de Orientación tras disparo de comprobación
+    if (screenState === 'CHECK_BS') {
+      ejecutarOrientacionFinal();
+      return;
+    }
+
+    // Observación
+    if (screenState === 'OBS') {
       if (activeField < 2) {
         setActiveField(f => f + 1);
       } else {
         setActiveField(0);
       }
+      return;
     }
-  }, [screenState, menuSelection, activeField, commitCurrentField, ejecutarOrientacion, exportarAUSB, inputBuffer, jobName, playBeep, playLaserBeep]);
+
+    // 3. Menú USB: T-Type vs S-Type
+    if (screenState === 'USB_MENU') {
+      if (usbMenuSelection === 1) {
+        setScreenState('USB_TTYPE');
+        setUsbMenuSelection(1);
+      } else {
+        setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE');
+      }
+      return;
+    }
+
+    // Menú USB T-Type: Guardar vs Cargar
+    if (screenState === 'USB_TTYPE') {
+      if (usbMenuSelection === 1) {
+        setScreenState('USB_SAVE_JOB');
+      } else {
+        setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO');
+      }
+      return;
+    }
+
+    // Pantalla de Descarga de Trabajo a USB
+    if (screenState === 'USB_SAVE_JOB') {
+      exportarAUSB();
+      setTimeout(() => {
+        setScreenState('MAIN');
+      }, 1600);
+      return;
+    }
+  }, [
+    screenState,
+    menuSelection,
+    activeField,
+    commitCurrentField,
+    iniciarComprobacionOrientacion,
+    ejecutarOrientacionFinal,
+    exportarAUSB,
+    inputBuffer,
+    jobName,
+    newKnownPoint,
+    knownPoints,
+    viewKnownIdx,
+    readTargetContext,
+    usbMenuSelection,
+    playBeep,
+    playLaserBeep
+  ]);
 
   // Botón físico ESC (Accede al menú DATO o regresa jerárquicamente)
   const handleEscPress = useCallback(() => {
@@ -507,8 +731,14 @@ export default function App() {
       setMenuSelection(1);
     } else if (screenState === 'DATO_MENU') {
       setScreenState('MAIN');
-    } else if (screenState === 'JOB' || screenState === 'KNOWN_PTS') {
+    } else if (screenState === 'JOB') {
       setScreenState('DATO_MENU');
+    } else if (screenState === 'KNOWN_PTS') {
+      setScreenState('DATO_MENU');
+    } else if (screenState === 'KNOWN_NEW') {
+      setScreenState('KNOWN_PTS');
+    } else if (screenState === 'SELECT_KNOWN_PT') {
+      setScreenState(readTargetContext === 'OCC' ? 'OCC_ORIEN' : 'ERXYZ');
     } else if (screenState === 'COORD_MENU') {
       setScreenState('MAIN');
     } else if (screenState === 'OCC_ORIEN' || screenState === 'OBS') {
@@ -517,8 +747,16 @@ export default function App() {
     } else if (screenState === 'ERXYZ') {
       setScreenState('OCC_ORIEN');
       setActiveField(0);
+    } else if (screenState === 'CHECK_BS') {
+      setScreenState('ERXYZ');
+    } else if (screenState === 'USB_MENU') {
+      setScreenState('MAIN');
+    } else if (screenState === 'USB_TTYPE') {
+      setScreenState('USB_MENU');
+    } else if (screenState === 'USB_SAVE_JOB') {
+      setScreenState('USB_TTYPE');
     }
-  }, [screenState, commitCurrentField, playBeep]);
+  }, [screenState, readTargetContext, commitCurrentField, playBeep]);
 
   // Flechas direccionales en cruz
   const handleArrow = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
@@ -533,14 +771,26 @@ export default function App() {
     }
 
     if (screenState === 'DATO_MENU') {
-      if (dir === 'UP') setMenuSelection(prev => (prev > 1 ? prev - 1 : 3));
-      if (dir === 'DOWN') setMenuSelection(prev => (prev < 3 ? prev + 1 : 1));
+      if (dir === 'UP' || dir === 'DOWN') {
+        setMenuSelection(prev => (prev === 1 ? 2 : 1));
+      }
       return;
     }
 
-    if (screenState === 'KNOWN_PTS') {
-      if (dir === 'UP' || dir === 'LEFT') setViewPointIdx(i => (i > 0 ? i - 1 : points.length - 1));
-      if (dir === 'DOWN' || dir === 'RIGHT') setViewPointIdx(i => (i < points.length - 1 ? i + 1 : 0));
+    if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE') {
+      if (dir === 'UP' || dir === 'DOWN') {
+        setUsbMenuSelection(prev => (prev === 1 ? 2 : 1));
+      }
+      return;
+    }
+
+    if (screenState === 'KNOWN_PTS' || screenState === 'SELECT_KNOWN_PT') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setViewKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setViewKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      }
       return;
     }
 
@@ -550,11 +800,14 @@ export default function App() {
     } else if (screenState === 'ERXYZ') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 2));
       if (dir === 'DOWN') setActiveField(f => (f < 2 ? f + 1 : 0));
+    } else if (screenState === 'KNOWN_NEW') {
+      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 4));
+      if (dir === 'DOWN') setActiveField(f => (f < 4 ? f + 1 : 0));
     } else if (screenState === 'OBS') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 2));
       if (dir === 'DOWN') setActiveField(f => (f < 2 ? f + 1 : 0));
     }
-  }, [screenState, points.length, commitCurrentField, playBeep]);
+  }, [screenState, knownPoints.length, commitCurrentField, playBeep]);
 
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
@@ -587,10 +840,14 @@ export default function App() {
           setMenuSelection(1);
         }
       } else {
-        // Pág 2: F1=[DATO], F2=[MENU], F3=[TILT], F4=[COORD]
+        // Pág 2: F1=[DATO], F2=[USB], F3=[TILT], F4=[COORD]
         if (fNum === 1) {
           setScreenState('DATO_MENU');
           setMenuSelection(1);
+        } else if (fNum === 2) {
+          // 3. Acceso al Menú USB desde Pág 2
+          setScreenState('USB_MENU');
+          setUsbMenuSelection(1);
         } else if (fNum === 3) {
           setScreenState('TILT');
         } else if (fNum === 4) {
@@ -613,6 +870,19 @@ export default function App() {
       return;
     }
 
+    // Menús USB
+    if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE') {
+      if (fNum === 4) handleEnterPress();
+      return;
+    }
+
+    // Guardar Trabajo USB
+    if (screenState === 'USB_SAVE_JOB') {
+      if (fNum === 3) setScreenState('JOB');
+      else if (fNum === 4) handleEnterPress();
+      return;
+    }
+
     // Pantalla TRABAJO
     if (screenState === 'JOB') {
       if (fNum === 3) setIsAlphaKeyboardOpen(k => !k);
@@ -620,17 +890,58 @@ export default function App() {
       return;
     }
 
-    // Visor de Puntos Guardados
+    // Visor de Datos Conocidos (KNOWN_PTS)
     if (screenState === 'KNOWN_PTS') {
-      if (fNum === 1) setViewPointIdx(i => (i > 0 ? i - 1 : points.length - 1));
-      else if (fNum === 2) setViewPointIdx(i => (i < points.length - 1 ? i + 1 : 0));
-      else if (fNum === 4) setScreenState('DATO_MENU');
+      if (fNum === 1) {
+        // 1. F1=[NUEV] -> Formulario para ingresar coordenadas base
+        setNewKnownPoint({
+          PTO: `BM-${knownPoints.length + 1}`,
+          N: 1000.0,
+          E: 1000.0,
+          Z: 100.0,
+          CD: 'BASE'
+        });
+        setActiveField(0);
+        setInputBuffer(`BM-${knownPoints.length + 1}`);
+        setScreenState('KNOWN_NEW');
+      } else if (fNum === 2) {
+        setViewKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      } else if (fNum === 3) {
+        setViewKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      } else if (fNum === 4) {
+        setScreenState('DATO_MENU');
+      }
       return;
     }
 
-    // Estacionamiento
+    // Formulario de Nueva Base (KNOWN_NEW)
+    if (screenState === 'KNOWN_NEW') {
+      if (fNum === 3) setIsAlphaKeyboardOpen(k => !k);
+      else if (fNum === 4) handleEnterPress();
+      return;
+    }
+
+    // 2. Selector de Base [LEER]
+    if (screenState === 'SELECT_KNOWN_PT') {
+      if (fNum === 1) {
+        setViewKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      } else if (fNum === 2) {
+        setViewKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      } else if (fNum === 3) {
+        setScreenState(readTargetContext === 'OCC' ? 'OCC_ORIEN' : 'ERXYZ');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // Estacionamiento: F1=[LEER], F3=[E.RXYZ], F4=[REG]
     if (screenState === 'OCC_ORIEN') {
-      if (fNum === 3) {
+      if (fNum === 1) {
+        setReadTargetContext('OCC');
+        setViewKnownIdx(0);
+        setScreenState('SELECT_KNOWN_PT');
+      } else if (fNum === 3) {
         setScreenState('ERXYZ');
         setActiveField(0);
       } else if (fNum === 4) {
@@ -641,11 +952,27 @@ export default function App() {
       return;
     }
 
-    // Orientar Punto Atrás
+    // Orientar Punto Atrás: F1=[LEER], F4=[OK] -> Comprobación
     if (screenState === 'ERXYZ') {
-      if (fNum === 4) {
+      if (fNum === 1) {
+        setReadTargetContext('BS');
+        setViewKnownIdx(0);
+        setScreenState('SELECT_KNOWN_PT');
+      } else if (fNum === 4) {
         commitCurrentField();
-        ejecutarOrientacion();
+        iniciarComprobacionOrientacion();
+      }
+      return;
+    }
+
+    // 4. Comprobación de Orientación: F1=[REMED], F3=[ESC], F4=[OK]
+    if (screenState === 'CHECK_BS') {
+      if (fNum === 1) {
+        iniciarComprobacionOrientacion();
+      } else if (fNum === 3) {
+        setScreenState('ERXYZ');
+      } else if (fNum === 4) {
+        ejecutarOrientacionFinal();
       }
       return;
     }
@@ -655,11 +982,9 @@ export default function App() {
       if (fNum === 3) {
         ejecutarLevantamientoAuto();
       } else if (fNum === 1) {
-        // Medir distancia previa
         setIsMeasuring(true);
         setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 300);
       } else if (fNum === 2) {
-        // Ver coordenadas instantáneas calculadas
         const radV = envV * (Math.PI / 180);
         const az = ((azimutInicial + envHD) % 360) * (Math.PI / 180);
         const dh = envSD * Math.sin(radV);
@@ -669,7 +994,25 @@ export default function App() {
         setLcdMessage(`COORD INST:\nN: ${n.toFixed(3)}\nE: ${e.toFixed(3)}\nZ: ${z.toFixed(3)}`);
       }
     }
-  }, [screenState, mainPage, commitCurrentField, handleEnterPress, ejecutarOrientacion, ejecutarLevantamientoAuto, envHD, envV, envSD, azimutInicial, station, target.HR, points.length, playBeep, playLaserBeep]);
+  }, [
+    screenState,
+    mainPage,
+    commitCurrentField,
+    handleEnterPress,
+    iniciarComprobacionOrientacion,
+    ejecutarOrientacionFinal,
+    ejecutarLevantamientoAuto,
+    readTargetContext,
+    knownPoints.length,
+    envHD,
+    envV,
+    envSD,
+    azimutInicial,
+    station,
+    target.HR,
+    playBeep,
+    playLaserBeep
+  ]);
 
   // Soporte directo para teclado físico de PC
   useEffect(() => {
@@ -738,19 +1081,28 @@ export default function App() {
       case 'MAIN':
         return mainPage === 1
           ? ['DIST', 'SHV', 'OSET', 'COORD']
-          : ['DATO', 'MENU', 'TILT', 'COORD'];
+          : ['DATO', 'USB', 'TILT', 'COORD'];
       case 'COORD_MENU':
-        return ['', '', '', 'ENT'];
       case 'DATO_MENU':
+      case 'USB_MENU':
+      case 'USB_TTYPE':
         return ['', '', '', 'ENT'];
+      case 'USB_SAVE_JOB':
+        return ['', '', 'LIST', 'ENT'];
       case 'JOB':
         return ['LIST', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'ENT'];
       case 'KNOWN_PTS':
-        return ['ANT', 'SIG', '', 'SALIR'];
+        return ['NUEV', 'ANT', 'SIG', 'SALIR'];
+      case 'KNOWN_NEW':
+        return ['', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'REG'];
+      case 'SELECT_KNOWN_PT':
+        return ['ANT', 'SIG', 'ESC', 'CARG'];
       case 'OCC_ORIEN':
-        return ['LIST', '', 'E.RXYZ', 'REG'];
+        return ['LEER', '', 'E.RXYZ', 'REG'];
       case 'ERXYZ':
-        return ['LIST', '', 'AZIM', 'OK'];
+        return ['LEER', '', 'AZIM', 'OK'];
+      case 'CHECK_BS':
+        return ['REMED', '', 'ESC', 'OK'];
       case 'OBS':
         return ['DIST', 'COORD', 'AUTO', 'OFS'];
       default:
@@ -1000,7 +1352,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'DATO_MENU': MENÚ DATO (1. TRABAJO, 2. DATOS CONOCIDOS, 3. EXPORTAR A USB) */}
+                      {/* ESTADO 'DATO_MENU': MENÚ DATO (1. TRABAJO, 2. DATOS CONOCIDOS) */}
                       {screenState === 'DATO_MENU' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
@@ -1008,16 +1360,14 @@ export default function App() {
                           </div>
                           {[
                             { id: 1, label: '1. TRABAJO' },
-                            { id: 2, label: '2. DATOS CONOCIDOS' },
-                            { id: 3, label: '3. EXPORTAR A USB' }
+                            { id: 2, label: '2. DATOS CONOCIDOS' }
                           ].map(item => (
                             <div
                               key={item.id}
                               onClick={() => {
                                 setMenuSelection(item.id);
                                 if (item.id === 1) { setScreenState('JOB'); setInputBuffer(jobName); }
-                                else if (item.id === 2) { setScreenState('KNOWN_PTS'); setViewPointIdx(0); }
-                                else if (item.id === 3) { exportarAUSB(); }
+                                else if (item.id === 2) { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
                               }}
                               className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
                                 menuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
@@ -1027,7 +1377,7 @@ export default function App() {
                               {menuSelection === item.id && <span>[ENT]</span>}
                             </div>
                           ))}
-                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
                             Seleccione opción y pulse [ENT]
                           </div>
                         </div>
@@ -1057,33 +1407,105 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'KNOWN_PTS': VISOR ON-BOARD DE MEMORIA INTERNA */}
+                      {/* 1. ESTADO 'KNOWN_PTS': VISOR ON-BOARD DE DATOS CONOCIDOS (BASES) */}
                       {screenState === 'KNOWN_PTS' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
                             <span>DATOS CONOCIDOS</span>
-                            <span className="text-[10px] font-bold">[{viewPointIdx + 1}/{points.length}]</span>
+                            <span className="text-[10px] font-bold">
+                              {knownPoints.length > 0 ? `[${viewKnownIdx + 1}/${knownPoints.length}]` : '[0/0]'}
+                            </span>
                           </div>
-                          {points.length === 0 ? (
-                            <div className="text-center py-4 text-neutral-700 font-sans">Sin puntos en memoria</div>
+                          {knownPoints.length === 0 ? (
+                            <div className="text-center py-4 text-neutral-800 font-sans">
+                              Sin bases cargadas.<br />Pulse [F1 NUEV] para ingresar.
+                            </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
                               <div className="flex justify-between font-bold">
-                                <span>PTO: {points[viewPointIdx].PTO}</span>
-                                <span>CD: {points[viewPointIdx].CD}</span>
+                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                                  {knownPoints[viewKnownIdx]?.CD || 'BASE'}
+                                </span>
                               </div>
                               <div className="flex justify-between text-[11px]">
-                                <span>N: {points[viewPointIdx].N.toFixed(3)}</span>
-                                <span>E: {points[viewPointIdx].E.toFixed(3)}</span>
+                                <span>N: {knownPoints[viewKnownIdx]?.N.toFixed(3)}</span>
+                                <span>E: {knownPoints[viewKnownIdx]?.E.toFixed(3)}</span>
                               </div>
                               <div className="flex justify-between text-[11px]">
-                                <span>Z: {points[viewPointIdx].Z.toFixed(3)}</span>
-                                <span className="uppercase text-[10px] font-sans">({points[viewPointIdx].type || 'RAD'})</span>
+                                <span>Z: {knownPoints[viewKnownIdx]?.Z.toFixed(3)}</span>
+                                <span className="text-[10px] text-neutral-700 font-sans font-bold">F1=NUEV</span>
                               </div>
                             </div>
                           )}
                           <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
-                            Flechas ▲ / ▼ para navegar puntos
+                            F1: Nueva Base • ▲ / ▼: Navegar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 1. ESTADO 'KNOWN_NEW': FORMULARIO PARA INGRESAR NUEVA BASE */}
+                      {screenState === 'KNOWN_NEW' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>INGRESAR BASE</span>
+                            <span className="text-[10px] font-black">F4=[REG]</span>
+                          </div>
+                          {[
+                            { label: 'PTO', val: newKnownPoint.PTO },
+                            { label: 'N', val: `${newKnownPoint.N.toFixed(3)} m` },
+                            { label: 'E', val: `${newKnownPoint.E.toFixed(3)} m` },
+                            { label: 'Z', val: `${newKnownPoint.Z.toFixed(3)} m` },
+                            { label: 'CD', val: newKnownPoint.CD || '' }
+                          ].map((item, idx) => {
+                            const isCur = activeField === idx;
+                            return (
+                              <div
+                                key={item.label}
+                                onClick={() => setActiveField(idx)}
+                                className={`flex justify-between items-center px-1.5 py-0.2 rounded cursor-pointer ${
+                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}:</span>
+                                <span>{isCur ? `${inputBuffer}_` : item.val}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 2. ESTADO 'SELECT_KNOWN_PT': CARGAR BASE CON [LEER] */}
+                      {screenState === 'SELECT_KNOWN_PT' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>LEER BASE {readTargetContext === 'OCC' ? '(ESTACIÓN)' : '(P. ATRÁS)'}</span>
+                            <span className="text-[10px] font-bold">[{viewKnownIdx + 1}/{knownPoints.length}]</span>
+                          </div>
+                          {knownPoints.length === 0 ? (
+                            <div className="text-center py-4 text-neutral-800 font-sans">
+                              No hay bases registradas.<br />ESC para volver.
+                            </div>
+                          ) : (
+                            <div className="space-y-0.5 bg-black/5 p-1 rounded">
+                              <div className="flex justify-between font-bold">
+                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                                  {knownPoints[viewKnownIdx]?.CD || 'BASE'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>N: {knownPoints[viewKnownIdx]?.N.toFixed(3)}</span>
+                                <span>E: {knownPoints[viewKnownIdx]?.E.toFixed(3)}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>Z: {knownPoints[viewKnownIdx]?.Z.toFixed(3)}</span>
+                                <span className="text-[10px] font-bold text-neutral-900 font-sans">F4=[CARG]</span>
+                              </div>
+                            </div>
+                          )}
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ / ▼: Seleccionar • F4 o [ENT]: Cargar
                           </div>
                         </div>
                       )}
@@ -1123,7 +1545,7 @@ export default function App() {
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
                             <span>ESTACIONAMIENTO</span>
-                            <span className="text-[10px] font-normal">F3=[E.RXYZ]</span>
+                            <span className="text-[10px] font-normal">F1=[LEER] • F3=[E.RXYZ]</span>
                           </div>
                           {[
                             { label: 'N0', val: station.N },
@@ -1153,7 +1575,7 @@ export default function App() {
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
                             <span>ORIENTAR (PTO ATRÁS)</span>
-                            <span className="text-[10px] font-black">F4=[OK]</span>
+                            <span className="text-[10px] font-black">F1=[LEER] • F4=[OK]</span>
                           </div>
                           {[
                             { label: 'NBS', val: backsight.N },
@@ -1175,7 +1597,131 @@ export default function App() {
                             );
                           })}
                           <div className="text-[10px] text-neutral-800 text-center font-bold pt-0.5 font-sans">
-                            Presione [F4] OK para calcular Azimut Inicial
+                            [F1] LEER Base • [F4] Comprobar Error con EDM
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. ESTADO 'CHECK_BS': COMPROBACIÓN DE ORIENTACIÓN (ERROR DELTA) */}
+                      {screenState === 'CHECK_BS' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>COMPROBAR ORIEN.</span>
+                            <span className="text-[10px] font-black">F4=[OK]</span>
+                          </div>
+                          <div className="space-y-0.5 bg-black/5 p-1 rounded">
+                            <div className="flex justify-between font-black">
+                              <span>dHD :</span>
+                              <span className={Math.abs(checkBsData.dHD) <= 0.01 ? 'text-emerald-950 font-bold' : 'text-amber-950 font-bold'}>
+                                {checkBsData.dHD >= 0 ? '+' : ''}{checkBsData.dHD.toFixed(3)} m
+                              </span>
+                            </div>
+                            <div className="flex justify-between font-black">
+                              <span>dZ  :</span>
+                              <span className={Math.abs(checkBsData.dZ) <= 0.01 ? 'text-emerald-950 font-bold' : 'text-amber-950 font-bold'}>
+                                {checkBsData.dZ >= 0 ? '+' : ''}{checkBsData.dZ.toFixed(3)} m
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[11px]">
+                              <span>AZIM :</span>
+                              <span>{formatDMS(checkBsData.azTeo)}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-neutral-700 border-t border-neutral-800/20 pt-0.5">
+                              <span>DH Med: {checkBsData.dhMed.toFixed(3)}m</span>
+                              <span>Teo: {checkBsData.dhTeo.toFixed(3)}m</span>
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-neutral-800 text-center font-bold pt-0.5 font-sans">
+                            F1=[REMED] • F4=[OK] para fijar estación
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ESTADO 'USB_MENU': MENÚ PRINCIPAL USB */}
+                      {screenState === 'USB_MENU' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
+                            --- MODO USB ---
+                          </div>
+                          {[
+                            { id: 1, label: '1. T-Type' },
+                            { id: 2, label: '2. S-Type' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setUsbMenuSelection(item.id);
+                                if (item.id === 1) setScreenState('USB_TTYPE');
+                                else setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE');
+                              }}
+                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
+                                usbMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {usbMenuSelection === item.id && <span>[ENT]</span>}
+                            </div>
+                          ))}
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
+                            Seleccione 1. T-Type y pulse [ENT]
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ESTADO 'USB_TTYPE': SUBMENÚ T-TYPE */}
+                      {screenState === 'USB_TTYPE' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
+                            --- T-Type ---
+                          </div>
+                          {[
+                            { id: 1, label: '1. Guardar Datos' },
+                            { id: 2, label: '2. Cargar Datos' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setUsbMenuSelection(item.id);
+                                if (item.id === 1) setScreenState('USB_SAVE_JOB');
+                                else setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO');
+                              }}
+                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
+                                usbMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {usbMenuSelection === item.id && <span>[ENT]</span>}
+                            </div>
+                          ))}
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
+                            Seleccione 1. Guardar Datos
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ESTADO 'USB_SAVE_JOB': SELECCIONAR TRABAJO Y EXPORTAR A USB */}
+                      {screenState === 'USB_SAVE_JOB' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>GUARDAR DATOS A USB</span>
+                            <span className="text-[10px] font-black">F4=[ENT]</span>
+                          </div>
+                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1 rounded flex justify-between items-center font-bold">
+                            <span>TRAB:</span>
+                            <span>{jobName}</span>
+                          </div>
+                          <div className="text-[11px] text-neutral-800 space-y-0.5 pt-0.5">
+                            <div className="flex justify-between">
+                              <span>FORMATO:</span>
+                              <span className="font-bold">GTS (CSV)</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>PUNTOS:</span>
+                              <span className="font-bold">{points.length} puntos</span>
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-neutral-900 text-center font-bold pt-1 font-sans bg-black/5 rounded py-0.5">
+                            Pulse [ENT] para descargar CSV
                           </div>
                         </div>
                       )}

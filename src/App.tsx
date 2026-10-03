@@ -107,7 +107,8 @@ type ScreenState =
   | 'KNOWN_NEW'
   | 'USB_MENU'
   | 'USB_TTYPE'
-  | 'USB_SAVE_JOB';
+  | 'USB_SAVE_JOB'
+  | 'USB_FORMAT';
 
 // Conversión sexagesimal estándar topográfica (DD°MM'SS")
 export const formatDMS = (deg: number): string => {
@@ -244,6 +245,9 @@ export default function App() {
 
   // Selección en menús USB
   const [usbMenuSelection, setUsbMenuSelection] = useState<number>(1);
+  const [usbSelectedJob, setUsbSelectedJob] = useState<string>('PROYECTO1');
+  const [usbFormatSelection, setUsbFormatSelection] = useState<number>(1);
+  const [obsShotFlash, setObsShotFlash] = useState<boolean>(false);
 
   // =========================================================================
   // 3. REGULADORES DE TERRENO (Simulación del Mundo Físico / Láser Exterior)
@@ -326,9 +330,8 @@ export default function App() {
       const vals = [backsight.N, backsight.E, backsight.Z, backsight.PTO ?? 'BS-1'];
       setInputBuffer(String(vals[activeField] ?? ''));
     } else if (screenState === 'OBS') {
-      if (activeField === 0) setInputBuffer(String(target.HR));
+      if (activeField === 0) setInputBuffer(target.PTO);
       if (activeField === 1) setInputBuffer(target.CD);
-      if (activeField === 2) setInputBuffer(target.PTO);
     } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       setInputBuffer(jobName.replace(/^\*/, ''));
     } else if (screenState === 'KNOWN_INPUT') {
@@ -348,7 +351,7 @@ export default function App() {
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
     if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
-    if (screenState === 'OBS' && (activeField === 1 || activeField === 2)) return true; // CD o PTO
+    if (screenState === 'OBS') return true; // Tanto PTO como Cd admiten alfanumérico
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
     if (screenState === 'ERXYZ' && activeField === 3) return true; // PTO de E.RXYZ
@@ -377,9 +380,8 @@ export default function App() {
       else if (activeField === 2 && !isNaN(val)) setBacksight(b => ({ ...b, Z: val }));
       else if (activeField === 3) setBacksight(b => ({ ...b, PTO: inputBuffer.trim() || 'BS-1' }));
     } else if (screenState === 'OBS') {
-      if (activeField === 0 && !isNaN(val)) setTarget(t => ({ ...t, HR: val }));
-      if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer }));
-      if (activeField === 2) setTarget(t => ({ ...t, PTO: inputBuffer.trim() || '1' }));
+      if (activeField === 0) setTarget(t => ({ ...t, PTO: inputBuffer.trim() || '1' }));
+      if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer.trim() || 'PTO' }));
     } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       if (inputBuffer.trim()) {
         const clean = inputBuffer.trim();
@@ -442,7 +444,7 @@ export default function App() {
   // =========================================================================
   // 5. ACCIÓN ESPECIAL: DESCARGA AUTOMÁTICA A USB (DESDE EL FLUJO USB REAL)
   // =========================================================================
-  const exportarAUSB = useCallback(() => {
+  const exportarAUSB = useCallback((customJob?: string) => {
     playLaserBeep();
     setLcdMessage('* LEYENDO MEMORIA... *\n* EXPORTANDO A USB *');
 
@@ -452,7 +454,8 @@ export default function App() {
         .map(p => `${p.PTO},${p.N.toFixed(3)},${p.E.toFixed(3)},${p.Z.toFixed(3)},${p.CD}`)
         .join('\n');
 
-      const cleanJob = (jobName || 'PROYECTO1').trim().replace(/^\*/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const jobToUse = customJob || usbSelectedJob || jobName || 'PROYECTO1';
+      const cleanJob = jobToUse.trim().replace(/^\*/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
       const dateStr = new Date().toISOString().slice(0, 10);
       const fileName = `${cleanJob}_${dateStr}.csv`;
 
@@ -470,8 +473,11 @@ export default function App() {
       setJobsList(prev => prev.map(j => (j.replace(/^\*/, '') === cleanJob ? cleanJob : j)));
 
       setLcdMessage(`¡ÉXITO EN USB!\nARCHIVO: ${fileName}\nPUNTOS: ${points.length}`);
+      setTimeout(() => {
+        setScreenState('ROOT');
+      }, 1600);
     }, 600);
-  }, [points, jobName, playLaserBeep]);
+  }, [points, jobName, usbSelectedJob, playLaserBeep]);
 
   // =========================================================================
   // 6. MÓDULO DE CÁLCULOS TOPOGRÁFICOS Y COMPROBACIÓN
@@ -573,6 +579,10 @@ export default function App() {
     setIsMeasuring(true);
     playBeep(2100, 0.05);
 
+    // Asegurar buffer actual si el usuario estaba editando PTO o Cd
+    const currentPTO = activeField === 0 ? (inputBuffer.trim() || target.PTO) : target.PTO;
+    const currentCD = activeField === 1 ? (inputBuffer.trim() || target.CD) : target.CD;
+
     setTimeout(() => {
       // 1. Extraer valores del Panel de Reguladores Externos
       const HD_grados = envHD;
@@ -598,31 +608,51 @@ export default function App() {
 
       // 6. Guardado en la memoria de la estación con PTO alfanumérico
       const nuevoPunto: TopoPoint = {
-        PTO: target.PTO,
+        PTO: currentPTO,
         N: parseFloat(Norte_Nuevo.toFixed(3)),
         E: parseFloat(Este_Nuevo.toFixed(3)),
         Z: parseFloat(Cota_Nueva.toFixed(3)),
-        CD: target.CD.trim() || 'PTO',
+        CD: currentCD.trim() || 'PTO',
         type: 'radial',
         date: new Date().toLocaleTimeString()
       };
 
       setPoints(prev => [...prev, nuevoPunto]);
 
-      // Bip acústico láser y mensaje de confirmación
+      // Bip acústico láser
       playLaserBeep();
-      setLcdMessage(`PTO ${target.PTO} GUARDADO\nN: ${nuevoPunto.N.toFixed(3)}\nE: ${nuevoPunto.E.toFixed(3)}\nZ: ${nuevoPunto.Z.toFixed(3)}`);
 
       // 7. Auto-incremento inteligente del PTO si termina en número
-      const proxPTO = incrementPointId(target.PTO);
+      const proxPTO = incrementPointId(currentPTO);
       setTarget(prev => ({
         ...prev,
-        PTO: proxPTO
+        PTO: proxPTO,
+        CD: currentCD
       }));
 
+      if (activeField === 0) {
+        setInputBuffer(proxPTO);
+      }
+
+      // Flash visual breve para confirmar disparo sin salir de la pantalla de Observación
+      setObsShotFlash(true);
+      setTimeout(() => setObsShotFlash(false), 350);
+
       setIsMeasuring(false);
-    }, 450);
-  }, [isMeasuring, envHD, envV, envSD, azimutInicial, station, target, playBeep, playLaserBeep]);
+    }, 350);
+  }, [
+    isMeasuring,
+    activeField,
+    inputBuffer,
+    envHD,
+    envV,
+    envSD,
+    azimutInicial,
+    station,
+    target,
+    playBeep,
+    playLaserBeep
+  ]);
 
   // =========================================================================
   // 7. BOTONERA FÍSICA Y MÁQUINA DE ESTADOS TOPCON
@@ -660,7 +690,7 @@ export default function App() {
 
     // Acceso numérico rápido desde ROOT
     if (screenState === 'ROOT') {
-      if (key === '1') { setScreenState('MED'); setMedPage(1); }
+      if (key === '1') { setScreenState('OBS'); setActiveField(0); }
       else if (key === '2') { setScreenState('USB_MENU'); setUsbMenuSelection(1); }
       else if (key === '3') { setScreenState('DATO_MENU'); setMenuSelection(1); }
       return;
@@ -706,17 +736,22 @@ export default function App() {
       return;
     }
 
-    // Selección numérica en menú USB
+    // Selección numérica en menú USB (5 opciones)
     if (screenState === 'USB_MENU') {
-      if (key === '1') { setScreenState('USB_TTYPE'); setUsbMenuSelection(1); }
-      else if (key === '2') { setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE'); }
+      if (key === '1') { setScreenState('USB_SAVE_JOB'); setSelectedJobIdx(0); }
+      else if (key === '2') { setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO'); }
+      else if (key === '3') { setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS'); }
+      else if (key === '4') { setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO'); }
+      else if (key === '5') { setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA'); }
       return;
     }
 
-    // Selección numérica en menú USB T-TYPE
-    if (screenState === 'USB_TTYPE') {
-      if (key === '1') { setScreenState('USB_SAVE_JOB'); }
-      else if (key === '2') { setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO'); }
+    // Selección numérica en formato USB (4 formatos)
+    if (screenState === 'USB_FORMAT') {
+      if (key === '1') setUsbFormatSelection(1);
+      else if (key === '2') setUsbFormatSelection(2);
+      else if (key === '3') setUsbFormatSelection(3);
+      else if (key === '4') setUsbFormatSelection(4);
       return;
     }
 
@@ -734,7 +769,8 @@ export default function App() {
       screenState === 'JOB_SELECT' ||
       screenState === 'JOB_LIST' ||
       screenState === 'JOB_DELETE_LIST' ||
-      screenState === 'JOB_DELETE_CONFIRM'
+      screenState === 'JOB_DELETE_CONFIRM' ||
+      screenState === 'USB_SAVE_JOB'
     ) return;
 
     if (key === 'BS') {
@@ -1038,43 +1074,49 @@ export default function App() {
       return;
     }
 
-    // Observación
+    // Observación: ENTER confirma campo editado
     if (screenState === 'OBS') {
-      if (activeField < 2) {
-        setActiveField(f => f + 1);
-      } else {
+      commitCurrentField();
+      if (activeField === 1) {
         setActiveField(0);
       }
       return;
     }
 
-    // 3. Menú USB: T-Type vs S-Type
+    // Menú USB: 5 opciones Topcon
     if (screenState === 'USB_MENU') {
       if (usbMenuSelection === 1) {
-        setScreenState('USB_TTYPE');
-        setUsbMenuSelection(1);
-      } else {
-        setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE');
-      }
-      return;
-    }
-
-    // Menú USB T-Type: Guardar vs Cargar
-    if (screenState === 'USB_TTYPE') {
-      if (usbMenuSelection === 1) {
         setScreenState('USB_SAVE_JOB');
-      } else {
-        setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO');
+        setSelectedJobIdx(0);
+      } else if (usbMenuSelection === 2) {
+        setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO');
+      } else if (usbMenuSelection === 3) {
+        setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS');
+      } else if (usbMenuSelection === 4) {
+        setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO');
+      } else if (usbMenuSelection === 5) {
+        setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA');
       }
       return;
     }
 
-    // Pantalla de Descarga de Trabajo a USB
+    // Selección de Trabajo para USB
     if (screenState === 'USB_SAVE_JOB') {
-      exportarAUSB();
-      setTimeout(() => {
-        setScreenState('ROOT');
-      }, 1600);
+      const selected = jobsList[selectedJobIdx] || jobName || 'PROYECTO1';
+      setUsbSelectedJob(selected);
+      setScreenState('USB_FORMAT');
+      setUsbFormatSelection(1);
+      return;
+    }
+
+    // Formatos de Exportación USB: GTS(Obs), GTS(Coord), SSS(Obs), SSS(Coord)
+    if (screenState === 'USB_FORMAT') {
+      if (usbFormatSelection === 4) {
+        // Solo cuando el usuario baja hasta SSS(Coord) y presiona [ENT], se ejecuta exportarAUSB
+        exportarAUSB(usbSelectedJob);
+      } else {
+        setLcdMessage('FORMATO NO DISP.\nBAJE A 4. SSS(Coord)');
+      }
       return;
     }
   }, [
@@ -1101,6 +1143,8 @@ export default function App() {
     viewKnownIdx,
     readTargetContext,
     usbMenuSelection,
+    usbSelectedJob,
+    usbFormatSelection,
     playBeep,
     playLaserBeep
   ]);
@@ -1162,12 +1206,14 @@ export default function App() {
       setScreenState('ERXYZ');
     } else if (screenState === 'CHECK_BS_DIST') {
       setScreenState('CHECK_BS');
+    } else if (screenState === 'USB_FORMAT') {
+      setScreenState('USB_SAVE_JOB');
+    } else if (screenState === 'USB_SAVE_JOB') {
+      setScreenState('USB_MENU');
     } else if (screenState === 'USB_MENU') {
       setScreenState('ROOT');
     } else if (screenState === 'USB_TTYPE') {
       setScreenState('USB_MENU');
-    } else if (screenState === 'USB_SAVE_JOB') {
-      setScreenState('USB_TTYPE');
     } else if (screenState === 'TILT') {
       setScreenState('ROOT');
     } else {
@@ -1215,7 +1261,29 @@ export default function App() {
       return;
     }
 
-    if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE') {
+    if (screenState === 'USB_MENU') {
+      if (dir === 'UP') setUsbMenuSelection(prev => (prev > 1 ? prev - 1 : 5));
+      if (dir === 'DOWN') setUsbMenuSelection(prev => (prev < 5 ? prev + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'USB_SAVE_JOB') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setSelectedJobIdx(i => (i > 0 ? i - 1 : Math.max(0, jobsList.length - 1)));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+      }
+      return;
+    }
+
+    if (screenState === 'USB_FORMAT') {
+      if (dir === 'UP') setUsbFormatSelection(prev => (prev > 1 ? prev - 1 : 4));
+      if (dir === 'DOWN') setUsbFormatSelection(prev => (prev < 4 ? prev + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'USB_TTYPE') {
       if (dir === 'UP' || dir === 'DOWN') {
         setUsbMenuSelection(prev => (prev === 1 ? 2 : 1));
       }
@@ -1264,8 +1332,8 @@ export default function App() {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 4));
       if (dir === 'DOWN') setActiveField(f => (f < 4 ? f + 1 : 0));
     } else if (screenState === 'OBS') {
-      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 2));
-      if (dir === 'DOWN') setActiveField(f => (f < 2 ? f + 1 : 0));
+      if (dir === 'DOWN') setActiveField(1); // Flecha abajo muestra campo Cd
+      if (dir === 'UP') setActiveField(0);   // Flecha arriba regresa a PTO
     }
   }, [screenState, knownPoints.length, jobsList.length, commitCurrentField, playBeep]);
 
@@ -1288,9 +1356,9 @@ export default function App() {
     // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
     if (screenState === 'ROOT') {
       if (fNum === 1) {
-        // F1=[OBS] -> va a Observación (pantalla MED)
-        setScreenState('MED');
-        setMedPage(1);
+        // F1=[OBS] -> va a Observación
+        setScreenState('OBS');
+        setActiveField(0);
       } else if (fNum === 2) {
         // F2=[USB] -> menú USB
         setScreenState('USB_MENU');
@@ -1409,10 +1477,27 @@ export default function App() {
       return;
     }
 
-    // Guardar Trabajo USB
+    // Selección de Trabajo en USB: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
     if (screenState === 'USB_SAVE_JOB') {
-      if (fNum === 3) setScreenState('JOB_SELECT');
-      else if (fNum === 4) handleEnterPress();
+      if (fNum === 1) {
+        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+      } else if (fNum === 2) {
+        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+      } else if (fNum === 3) {
+        setScreenState('USB_MENU');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // Selección de Formato USB: F3=[ESC], F4=[ENT]
+    if (screenState === 'USB_FORMAT') {
+      if (fNum === 3) {
+        setScreenState('USB_SAVE_JOB');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
       return;
     }
 
@@ -1648,22 +1733,24 @@ export default function App() {
       return;
     }
 
-    // Observación (Levantamiento): F3=[AUTO]
+    // Observación: [REG] [DESPLZ] [AUTO] [MED]
     if (screenState === 'OBS') {
-      if (fNum === 3) {
+      if (fNum === 1) {
+        // [REG]: Registra el punto actual
         ejecutarLevantamientoAuto();
-      } else if (fNum === 1) {
-        setIsMeasuring(true);
-        setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 300);
       } else if (fNum === 2) {
-        const radV = envV * (Math.PI / 180);
-        const az = ((azimutInicial + envHD) % 360) * (Math.PI / 180);
-        const dh = envSD * Math.sin(radV);
-        const n = station.N + dh * Math.cos(az);
-        const e = station.E + dh * Math.sin(az);
-        const z = station.Z + station.HI + envSD * Math.cos(radV) - target.HR;
-        setLcdMessage(`COORD INST:\nN: ${n.toFixed(3)}\nE: ${e.toFixed(3)}\nZ: ${z.toFixed(3)}`);
+        // [DESPLZ]: Modo Desplazamiento
+        setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+      } else if (fNum === 3) {
+        // [AUTO]: Disparo automático, guarda en points, bip, auto-incrementa PTO y sigue listo en pantalla
+        ejecutarLevantamientoAuto();
+      } else if (fNum === 4) {
+        // [MED]: Medición de distancia
+        setIsMeasuring(true);
+        playLaserBeep();
+        setTimeout(() => { setIsMeasuring(false); }, 350);
       }
+      return;
     }
   }, [
     screenState,
@@ -1790,7 +1877,9 @@ export default function App() {
       case 'JOB_DELETE_CONFIRM':
         return ['', '', 'NO', 'SI'];
       case 'USB_SAVE_JOB':
-        return ['', '', 'LIST', 'ENT'];
+        return ['ANT', 'SIG', 'ESC', 'ENT'];
+      case 'USB_FORMAT':
+        return ['', '', 'ESC', 'ENT'];
       case 'JOB':
         return ['LIST', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'ENT'];
       case 'KNOWN_PTS':
@@ -1808,7 +1897,7 @@ export default function App() {
       case 'CHECK_BS_DIST':
         return ['REG', 'ALT', '', 'OK'];
       case 'OBS':
-        return ['DIST', 'COORD', 'AUTO', 'OFS'];
+        return ['REG', 'DESPLZ', 'AUTO', 'MED'];
       default:
         return ['', '', '', ''];
     }
@@ -2781,141 +2870,195 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 3. ESTADO 'USB_MENU': MENÚ PRINCIPAL USB */}
+                      {/* 3. ESTADO 'USB_MENU': MENÚ USB CON 5 OPCIONES ESTRICTAS */}
                       {screenState === 'USB_MENU' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
-                            --- MODO USB ---
-                          </div>
-                          {[
-                            { id: 1, label: '1. T-Type' },
-                            { id: 2, label: '2. S-Type' }
-                          ].map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                setUsbMenuSelection(item.id);
-                                if (item.id === 1) setScreenState('USB_TTYPE');
-                                else setLcdMessage('MODO S-TYPE NO DISPONIBLE\nUSE 1. T-TYPE');
-                              }}
-                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
-                                usbMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                              }`}
-                            >
-                              <span>{item.label}</span>
-                              {usbMenuSelection === item.id && <span>[ENT]</span>}
-                            </div>
-                          ))}
-                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
-                            Seleccione 1. T-Type y pulse [ENT]
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 3. ESTADO 'USB_TTYPE': SUBMENÚ T-TYPE */}
-                      {screenState === 'USB_TTYPE' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
-                            --- T-Type ---
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- MENÚ USB ---</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{usbMenuSelection}/5]</span>
                           </div>
                           {[
                             { id: 1, label: '1. Guardar Datos' },
-                            { id: 2, label: '2. Cargar Datos' }
+                            { id: 2, label: '2. Cargar Pto.Conoc' },
+                            { id: 3, label: '3. Guardar Codigo' },
+                            { id: 4, label: '4. Cargar Codigo' },
+                            { id: 5, label: '5. Estado' }
                           ].map(item => (
                             <div
                               key={item.id}
                               onClick={() => {
                                 setUsbMenuSelection(item.id);
-                                if (item.id === 1) setScreenState('USB_SAVE_JOB');
-                                else setLcdMessage('CARGAR DATOS USB:\nDISPOSITIVO NO CONECTADO');
+                                if (item.id === 1) {
+                                  setScreenState('USB_SAVE_JOB');
+                                  setSelectedJobIdx(0);
+                                } else if (item.id === 2) {
+                                  setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO');
+                                } else if (item.id === 3) {
+                                  setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS');
+                                } else if (item.id === 4) {
+                                  setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO');
+                                } else if (item.id === 5) {
+                                  setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA');
+                                }
                               }}
-                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
+                              className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
                                 usbMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                               }`}
                             >
                               <span>{item.label}</span>
-                              {usbMenuSelection === item.id && <span>[ENT]</span>}
+                              {usbMenuSelection === item.id && <span className="text-[10px]">[ENT]</span>}
                             </div>
                           ))}
-                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
-                            Seleccione 1. Guardar Datos
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ / ▼: Seleccionar • [ENT]: Entrar
                           </div>
                         </div>
                       )}
 
-                      {/* 3. ESTADO 'USB_SAVE_JOB': SELECCIONAR TRABAJO Y EXPORTAR A USB */}
+                      {/* 3. ESTADO 'USB_SAVE_JOB': SELECCIONAR TRABAJO PARA EXPORTAR */}
                       {screenState === 'USB_SAVE_JOB' && (
-                        <div className="space-y-1 font-mono text-xs">
+                        <div className="space-y-1 font-mono text-xs px-1">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>GUARDAR DATOS A USB</span>
-                            <span className="text-[10px] font-black">F4=[ENT]</span>
+                            <span>SELEC TRABAJO USB</span>
+                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1 rounded flex justify-between items-center font-bold">
-                            <span>TRAB:</span>
-                            <span>{jobName}</span>
+                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
+                            {jobsList.map((job, idx) => (
+                              <div
+                                key={job + idx}
+                                onClick={() => setSelectedJobIdx(idx)}
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                  selectedJobIdx === idx
+                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                }`}
+                              >
+                                <span>{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                              </div>
+                            ))}
                           </div>
-                          <div className="text-[11px] text-neutral-800 space-y-0.5 pt-0.5">
-                            <div className="flex justify-between">
-                              <span>FORMATO:</span>
-                              <span className="font-bold">GTS (CSV)</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>PUNTOS:</span>
-                              <span className="font-bold">{points.length} puntos</span>
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-neutral-900 text-center font-bold pt-1 font-sans bg-black/5 rounded py-0.5">
-                            Pulse [ENT] para descargar CSV
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            * No exportado • [ENT] Seleccionar Trabajo
                           </div>
                         </div>
                       )}
 
-                      {/* ESTADO 'OBS': OBSERVACIÓN (HR, CD, PTO alfanumérico) */}
-                      {screenState === 'OBS' && (
+                      {/* 3. ESTADO 'USB_FORMAT': SELECCIÓN DE FORMATOS GTS / SSS */}
+                      {screenState === 'USB_FORMAT' && (
                         <div className="space-y-0.5 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>OBSERVACIÓN</span>
-                            <span className="text-[10px] font-black">F3=[AUTO]</span>
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>FORMATO EXPORT.</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{usbFormatSelection}/4]</span>
                           </div>
-
-                          <div
-                            onClick={() => setActiveField(0)}
-                            className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
-                              activeField === 0 ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                            }`}
-                          >
-                            <span>HR :</span>
-                            <span>{activeField === 0 ? `${inputBuffer}_` : `${target.HR.toFixed(3)} m`}</span>
-                          </div>
-
-                          <div
-                            onClick={() => setActiveField(1)}
-                            className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
-                              activeField === 1 ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                            }`}
-                          >
-                            <span>CD :</span>
-                            <span>{activeField === 1 ? `${inputBuffer}_` : target.CD}</span>
-                          </div>
-
-                          <div
-                            onClick={() => setActiveField(2)}
-                            className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
-                              activeField === 2 ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                            }`}
-                          >
-                            <span>PTO:</span>
-                            <span className="font-bold">
-                              {activeField === 2 ? `${inputBuffer}_` : target.PTO}
-                            </span>
-                          </div>
-
-                          <div className="text-[10px] text-neutral-800 flex justify-between border-t border-neutral-800/20 pt-0.5 font-bold">
-                            <span>HD:{formatDMS(envHD)}</span>
-                            <span>V:{formatDMS(envV)}</span>
+                          {[
+                            { id: 1, label: '1. GTS(Obs)' },
+                            { id: 2, label: '2. GTS(Coord)' },
+                            { id: 3, label: '3. SSS(Obs)' },
+                            { id: 4, label: '4. SSS(Coord)' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setUsbFormatSelection(item.id);
+                                if (item.id === 4) {
+                                  exportarAUSB(usbSelectedJob);
+                                } else {
+                                  setLcdMessage('FORMATO NO DISP.\nBAJE A 4. SSS(Coord)');
+                                }
+                              }}
+                              className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                usbFormatSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {usbFormatSelection === item.id && <span className="text-[10px]">[ENT]</span>}
+                            </div>
+                          ))}
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            Baje a 4. SSS(Coord) y pulse [ENT] para descargar CSV
                           </div>
                         </div>
                       )}
+
+                      {/* 1. ESTADO 'OBS': OBSERVACIÓN (Y, X, Z ARRIBA, HD EN MEDIO, PTO ABAJO, CD CON FLECHA ABAJO) */}
+                      {screenState === 'OBS' && (() => {
+                        const radV = envV * (Math.PI / 180);
+                        let liveAz = azimutInicial + envHD;
+                        liveAz = ((liveAz % 360) + 360) % 360;
+                        const liveAzRad = liveAz * (Math.PI / 180);
+                        const liveDH = envSD * Math.sin(radV);
+                        const liveDV = envSD * Math.cos(radV);
+                        const liveY = station.N + (liveDH * Math.cos(liveAzRad));
+                        const liveX = station.E + (liveDH * Math.sin(liveAzRad));
+                        const liveZ = station.Z + station.HI + liveDV - target.HR;
+
+                        return (
+                          <div className="space-y-1 font-mono text-xs px-0.5">
+                            {/* Barra de cabecera con indicación REC / flash */}
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                              <span className="flex items-center gap-1.5 font-black text-neutral-950">
+                                <span>OBSERVACIÓN</span>
+                                {obsShotFlash && (
+                                  <span className="bg-neutral-950 text-emerald-400 px-1 py-0.2 rounded text-[9px] font-black">
+                                    *REG*
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-[10px] font-bold text-neutral-800">
+                                HR: {target.HR.toFixed(3)}m
+                              </span>
+                            </div>
+
+                            {/* Y, X, Z (ARRIBA) */}
+                            <div className="space-y-0.5 bg-black/5 p-1 rounded border border-neutral-800/15">
+                              <div className="flex justify-between items-center text-[12px]">
+                                <span className="font-bold text-neutral-900">Y :</span>
+                                <span className="font-mono font-black">{liveY.toFixed(3)} m</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[12px]">
+                                <span className="font-bold text-neutral-900">X :</span>
+                                <span className="font-mono font-black">{liveX.toFixed(3)} m</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[12px]">
+                                <span className="font-bold text-neutral-900">Z :</span>
+                                <span className="font-mono font-black">{liveZ.toFixed(3)} m</span>
+                              </div>
+                            </div>
+
+                            {/* HD (EN MEDIO) */}
+                            <div className="flex justify-between items-center bg-black/5 px-2 py-0.5 rounded text-[12px] border border-neutral-800/15">
+                              <span className="font-bold text-neutral-900">HD:</span>
+                              <span className="font-mono font-black">{formatDMS(envHD)}</span>
+                            </div>
+
+                            {/* PTO (ABAJO) / Cd (AL PULSAR FLECHA ABAJO) */}
+                            {activeField === 0 ? (
+                              <div
+                                onClick={() => setActiveField(0)}
+                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner"
+                              >
+                                <span>PTO:</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-black">{inputBuffer}_</span>
+                                  <span className="text-[9px] text-neutral-400 font-normal">▼ Cd</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                onClick={() => setActiveField(1)}
+                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner"
+                              >
+                                <span>Cd :</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-black">{inputBuffer}_</span>
+                                  <span className="text-[9px] text-neutral-400 font-normal">▲ PTO</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </>
                   )}
                 </div>
@@ -3321,7 +3464,7 @@ export default function App() {
               <span className="font-mono text-emerald-400 font-bold">{points.length} puntos</span>
             </div>
             <div className="text-[10px] text-neutral-500 italic pt-1 border-t border-neutral-800/80">
-              * Para descargar el CSV: Pulsa [ESC] en el equipo y entra a 3. EXPORTAR A USB.
+              * Para exportar a USB: En ROOT pulsa [F2 USB] &gt; 1. Guardar Datos &gt; Selecciona Trabajo &gt; 4. SSS(Coord).
             </div>
           </div>
         </aside>

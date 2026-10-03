@@ -25,6 +25,17 @@ interface Backsight {
   N: number;
   E: number;
   Z: number;
+  PTO?: string;
+}
+
+interface StationAtm {
+  CD: string;
+  operador: string;
+  clima: string;
+  viento: string;
+  temp: string;
+  pres: string;
+  ppm: string;
 }
 
 interface Target {
@@ -60,18 +71,13 @@ type EdmMode = 'prism' | 'sheet' | 'non_prism';
 // 'MED'            : Pantalla de Medición (G-0, H-0, V-0, PPm 11). Pág 1/2/3 alternadas con [FUNC]
 // 'MAIN'           : Pantalla de compatibilidad
 // 'COORD_MENU'     : Menú COORD (1. Occ.Orien., 2. Observación)
-// 'OCC_ORIEN'      : Estacionamiento (N0, E0, Z0, HI). F1=[LEER], F3=[E.RXYZ], F4=[REG]
-// 'ERXYZ'          : Orientar por Punto Atrás (NBS, EBS, ZBS). F1=[LEER], F4=[OK] -> Comprobación
-// 'CHECK_BS'       : Comprobación de Orientación con disparo EDM. Muestra dHD, dZ. F1=[REMED], F4=[OK]
-// 'SELECT_KNOWN_PT': Selector de Base/Datos conocidos para [LEER]. F4=[CARG]
+// 'OCC_ORIEN'      : Estacionamiento (Y0, X0, Z0, HI, Cd, Operador...). F1=[CARG], F3=[E.RXYZ], F4=[REG]
+// 'ERXYZ'          : Orientar por Punto Atrás (Yref, Xref, Zref, PTO). F1=[CARG], F4=[OK] -> Comprobación
+// 'CHECK_BS'       : Comprobación de Orientación (AZ, HA-D, Acim). F1=[REG], F2=[MED], F3=[NO], F4=[SI]
+// 'CHECK_BS_DIST'  : Ref.DisH ver (dDH = Obs H - Calc DH). F1=[REG], F2=[ALT], F4=[OK]
+// 'SELECT_KNOWN_PT': Selector de Base/Datos conocidos para [CARG]. F4=[CARG]
 // 'OBS'            : Levantamiento (HR, CD, PTO). F3=[AUTO] dispara distanciómetro y auto-incrementa PTO
 // 'DATO_MENU'      : Menú DATO accesible con ESC o Pág 2 (1. TRABAJO, 2. DATOS CONOCIDOS)
-// 'JOB'            : Edición de Nombre de Proyecto (Alfanumérico, ej: PROYECTO1)
-// 'KNOWN_PTS'      : Visor y gestión de coordenadas base (knownPoints). F1=[NUEV]
-// 'KNOWN_NEW'      : Formulario de ingreso de nueva base (PTO, N, E, Z, CD). F4=[REG]
-// 'USB_MENU'       : Menú USB principal (1. T-Type, 2. S-Type)
-// 'USB_TTYPE'      : Menú T-Type (1. Guardar Datos, 2. Cargar Datos)
-// 'USB_SAVE_JOB'   : Guardar datos a USB (Seleccionar Trabajo y [ENT] para exportar CSV)
 type ScreenState =
   | 'TILT'
   | 'ROOT'
@@ -81,6 +87,7 @@ type ScreenState =
   | 'OCC_ORIEN'
   | 'ERXYZ'
   | 'CHECK_BS'
+  | 'CHECK_BS_DIST'
   | 'SELECT_KNOWN_PT'
   | 'OBS'
   | 'DATO_MENU'
@@ -141,10 +148,21 @@ export default function App() {
     HI: 1.55,
   });
 
+  const [stationAtm, setStationAtm] = useState<StationAtm>({
+    CD: 'BASE',
+    operador: 'TOPOGRAFO',
+    clima: 'DESPEJADO',
+    viento: 'Calma',
+    temp: '20°C',
+    pres: '760mmHg',
+    ppm: '11'
+  });
+
   const [backsight, setBacksight] = useState<Backsight>({
     N: 1050.0,
     E: 1050.0,
     Z: 100.0,
+    PTO: 'BS-1'
   });
 
   const [azimutInicial, setAzimutInicial] = useState<number>(45.0); // Calculado tras orientar
@@ -199,14 +217,30 @@ export default function App() {
     CD: 'BASE'
   });
 
-  // Datos para comprobación de orientación y cálculo de error delta
+  // Datos para comprobación de orientación y cálculo de error delta (dDH)
   const [checkBsData, setCheckBsData] = useState<{
     dHD: number;
     dZ: number;
     azTeo: number;
     dhTeo: number;
     dhMed: number;
-  }>({ dHD: 0, dZ: 0, azTeo: 45, dhTeo: 70.71, dhMed: 70.71 });
+    calcDH: number;
+    obsH: number;
+    dDH: number;
+    haD: number;
+    acim: number;
+  }>({
+    dHD: 0,
+    dZ: 0,
+    azTeo: 45,
+    dhTeo: 70.71,
+    dhMed: 70.71,
+    calcDH: 70.71,
+    obsH: 70.71,
+    dDH: 0,
+    haD: 45,
+    acim: 45
+  });
 
   // Selección en menús USB
   const [usbMenuSelection, setUsbMenuSelection] = useState<number>(1);
@@ -274,10 +308,22 @@ export default function App() {
   // Sincronizar inputBuffer cuando cambia el campo o la pantalla
   useEffect(() => {
     if (screenState === 'OCC_ORIEN') {
-      const vals = [station.N, station.E, station.Z, station.HI];
+      const vals = [
+        station.N,
+        station.E,
+        station.Z,
+        station.HI,
+        stationAtm.CD,
+        stationAtm.operador,
+        stationAtm.clima,
+        stationAtm.viento,
+        stationAtm.temp,
+        stationAtm.pres,
+        stationAtm.ppm
+      ];
       setInputBuffer(String(vals[activeField] ?? ''));
     } else if (screenState === 'ERXYZ') {
-      const vals = [backsight.N, backsight.E, backsight.Z];
+      const vals = [backsight.N, backsight.E, backsight.Z, backsight.PTO ?? 'BS-1'];
       setInputBuffer(String(vals[activeField] ?? ''));
     } else if (screenState === 'OBS') {
       if (activeField === 0) setInputBuffer(String(target.HR));
@@ -297,7 +343,7 @@ export default function App() {
       if (activeField === 3) setInputBuffer(String(newKnownPoint.Z));
       if (activeField === 4) setInputBuffer(newKnownPoint.CD ?? '');
     }
-  }, [screenState, activeField, station, backsight, target, jobName, knownCoordsInput, newKnownPoint]);
+  }, [screenState, activeField, station, stationAtm, backsight, target, jobName, knownCoordsInput, newKnownPoint]);
 
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
@@ -305,6 +351,8 @@ export default function App() {
     if (screenState === 'OBS' && (activeField === 1 || activeField === 2)) return true; // CD o PTO
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
+    if (screenState === 'ERXYZ' && activeField === 3) return true; // PTO de E.RXYZ
+    if (screenState === 'OCC_ORIEN' && (activeField >= 4 && activeField <= 7)) return true; // Cd, Operador, Clima, Viento
     return false;
   }, [screenState, activeField]);
 
@@ -313,13 +361,21 @@ export default function App() {
     const val = parseFloat(inputBuffer);
     if (screenState === 'OCC_ORIEN') {
       if (activeField === 0 && !isNaN(val)) setStation(s => ({ ...s, N: val }));
-      if (activeField === 1 && !isNaN(val)) setStation(s => ({ ...s, E: val }));
-      if (activeField === 2 && !isNaN(val)) setStation(s => ({ ...s, Z: val }));
-      if (activeField === 3 && !isNaN(val)) setStation(s => ({ ...s, HI: val }));
+      else if (activeField === 1 && !isNaN(val)) setStation(s => ({ ...s, E: val }));
+      else if (activeField === 2 && !isNaN(val)) setStation(s => ({ ...s, Z: val }));
+      else if (activeField === 3 && !isNaN(val)) setStation(s => ({ ...s, HI: val }));
+      else if (activeField === 4) setStationAtm(a => ({ ...a, CD: inputBuffer.trim() || 'BASE' }));
+      else if (activeField === 5) setStationAtm(a => ({ ...a, operador: inputBuffer.trim() || 'OPERADOR' }));
+      else if (activeField === 6) setStationAtm(a => ({ ...a, clima: inputBuffer.trim() || 'DESPEJADO' }));
+      else if (activeField === 7) setStationAtm(a => ({ ...a, viento: inputBuffer.trim() || 'Calma' }));
+      else if (activeField === 8) setStationAtm(a => ({ ...a, temp: inputBuffer.trim() || '20°C' }));
+      else if (activeField === 9) setStationAtm(a => ({ ...a, pres: inputBuffer.trim() || '760mmHg' }));
+      else if (activeField === 10) setStationAtm(a => ({ ...a, ppm: inputBuffer.trim() || '11' }));
     } else if (screenState === 'ERXYZ') {
       if (activeField === 0 && !isNaN(val)) setBacksight(b => ({ ...b, N: val }));
-      if (activeField === 1 && !isNaN(val)) setBacksight(b => ({ ...b, E: val }));
-      if (activeField === 2 && !isNaN(val)) setBacksight(b => ({ ...b, Z: val }));
+      else if (activeField === 1 && !isNaN(val)) setBacksight(b => ({ ...b, E: val }));
+      else if (activeField === 2 && !isNaN(val)) setBacksight(b => ({ ...b, Z: val }));
+      else if (activeField === 3) setBacksight(b => ({ ...b, PTO: inputBuffer.trim() || 'BS-1' }));
     } else if (screenState === 'OBS') {
       if (activeField === 0 && !isNaN(val)) setTarget(t => ({ ...t, HR: val }));
       if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer }));
@@ -421,41 +477,63 @@ export default function App() {
   // 6. MÓDULO DE CÁLCULOS TOPOGRÁFICOS Y COMPROBACIÓN
   // =========================================================================
 
-  // 4. CÁLCULO DEL ERROR DE ORIENTACIÓN: Disparo de comprobación leyendo Distancia Inclinada (SD)
-  const iniciarComprobacionOrientacion = useCallback(() => {
+  // 4. CÁLCULO DE ORIENTACIÓN: Prepara pantalla AZ, HA-D, Acim tras presionar [OK] en E.RXYZ
+  const prepararComprobacionOrientacion = useCallback(() => {
+    commitCurrentField();
+    const deltaN = backsight.N - station.N;
+    const deltaE = backsight.E - station.E;
+    let azimut = Math.atan2(deltaE, deltaN) * (180 / Math.PI);
+    if (azimut < 0) azimut += 360;
+    const calcDH = Math.sqrt(deltaN * deltaN + deltaE * deltaE);
+
+    setCheckBsData(prev => ({
+      ...prev,
+      azTeo: azimut,
+      haD: azimut,
+      acim: azimut,
+      calcDH: parseFloat(calcDH.toFixed(3)),
+      dhTeo: parseFloat(calcDH.toFixed(3))
+    }));
+
+    setScreenState('CHECK_BS');
+  }, [backsight, station, commitCurrentField]);
+
+  // Alias de compatibilidad
+  const iniciarComprobacionOrientacion = prepararComprobacionOrientacion;
+
+  // 4B. SIMULACIÓN DE DISPARO DE COMPROBACIÓN (dDH): Ref.DisH ver leyendo regulador externo
+  const iniciarMedicionDistanciaComprobacion = useCallback(() => {
     setIsMeasuring(true);
     playLaserBeep();
 
     setTimeout(() => {
       setIsMeasuring(false);
 
-      // Coordenadas teóricas entre estación y punto atrás
+      // Distancia Horizontal teórica entre la estación y el punto atrás
       const deltaN = backsight.N - station.N;
       const deltaE = backsight.E - station.E;
-      const dhTeo = Math.sqrt(deltaN * deltaN + deltaE * deltaE);
-      const azTeo = ((Math.atan2(deltaE, deltaN) * (180 / Math.PI)) + 360) % 360;
+      const calcDH = Math.sqrt(deltaN * deltaN + deltaE * deltaE);
 
-      // Lectura del distanciómetro simulado (Panel de Reguladores)
+      // Distancia Horizontal Observada con el regulador externo (envSD) y ángulo cenital (envV)
       const radV = envV * (Math.PI / 180);
-      const dhMed = envSD * Math.sin(radV);
-      const dvMed = envSD * Math.cos(radV);
-      const zMed = station.Z + station.HI + dvMed - target.HR;
+      const obsH = envSD * Math.sin(radV);
 
-      // Cálculo estricto del error delta
-      const dHD = dhMed - dhTeo;
-      const dZ = zMed - backsight.Z;
+      // Cálculo del error: dDH = Obs H - Calc DH
+      const dDH = obsH - calcDH;
 
-      setCheckBsData({
-        dHD: parseFloat(dHD.toFixed(3)),
-        dZ: parseFloat(dZ.toFixed(3)),
-        azTeo,
-        dhTeo,
-        dhMed
-      });
+      setCheckBsData(prev => ({
+        ...prev,
+        calcDH: parseFloat(calcDH.toFixed(3)),
+        obsH: parseFloat(obsH.toFixed(3)),
+        dDH: parseFloat(dDH.toFixed(3)),
+        dHD: parseFloat(dDH.toFixed(3)),
+        dhTeo: parseFloat(calcDH.toFixed(3)),
+        dhMed: parseFloat(obsH.toFixed(3))
+      }));
 
-      setScreenState('CHECK_BS');
+      setScreenState('CHECK_BS_DIST');
     }, 380);
-  }, [backsight, station, target.HR, envV, envSD, playLaserBeep]);
+  }, [backsight, station, envV, envSD, playLaserBeep]);
 
   // Confirmar y Fijar Estación tras Comprobación de Orientación
   const ejecutarOrientacionFinal = useCallback(() => {
@@ -474,20 +552,20 @@ export default function App() {
     setPoints(prev => {
       const sinBase = prev.filter(p => p.type !== 'station' && p.type !== 'backsight');
       return [
-        { PTO: 'EST-1', N: station.N, E: station.E, Z: station.Z, CD: 'ESTACION', type: 'station' },
-        { PTO: 'BS-1', N: backsight.N, E: backsight.E, Z: backsight.Z, CD: 'PTO_ATRAS', type: 'backsight' },
+        { PTO: 'EST-1', N: station.N, E: station.E, Z: station.Z, CD: stationAtm.CD, type: 'station' },
+        { PTO: backsight.PTO || 'BS-1', N: backsight.N, E: backsight.E, Z: backsight.Z, CD: 'PTO_ATRAS', type: 'backsight' },
         ...sinBase
       ];
     });
 
     playLaserBeep();
-    const signDHD = checkBsData.dHD >= 0 ? '+' : '';
-    setLcdMessage(`¡ESTACIÓN FIJADA!\nAZ: ${formatDMS(azimut)}\ndHD: ${signDHD}${checkBsData.dHD.toFixed(3)}m\nDH: ${distDH.toFixed(3)}m`);
+    const signDDH = checkBsData.dDH >= 0 ? '+' : '';
+    setLcdMessage(`¡ESTACIÓN FIJADA!\nAZ: ${formatDMS(azimut)}\ndDH: ${signDDH}${checkBsData.dDH.toFixed(3)}m\nDH: ${distDH.toFixed(3)}m`);
 
     setTimeout(() => {
       setScreenState('COORD_MENU');
     }, 1800);
-  }, [backsight, station, checkBsData.dHD, playBeep, playLaserBeep]);
+  }, [backsight, station, stationAtm.CD, checkBsData.dDH, playBeep, playLaserBeep]);
 
   // Disparo Láser y Levantamiento [AUTO]
   const ejecutarLevantamientoAuto = useCallback(() => {
@@ -652,6 +730,7 @@ export default function App() {
       screenState === 'KNOWN_PTS' ||
       screenState === 'SELECT_KNOWN_PT' ||
       screenState === 'CHECK_BS' ||
+      screenState === 'CHECK_BS_DIST' ||
       screenState === 'JOB_SELECT' ||
       screenState === 'JOB_LIST' ||
       screenState === 'JOB_DELETE_LIST' ||
@@ -889,7 +968,7 @@ export default function App() {
       return;
     }
 
-    // 2. Cargar base seleccionada con [LEER]
+    // 2. Cargar base seleccionada con [CARG] o [ENT]
     if (screenState === 'SELECT_KNOWN_PT') {
       const selected = knownPoints[viewKnownIdx];
       if (selected) {
@@ -901,26 +980,34 @@ export default function App() {
             E: selected.E,
             Z: selected.Z
           }));
-          setLcdMessage(`BASE ${selected.PTO}\nCARGADA EN N0,E0,Z0`);
-          setScreenState('OCC_ORIEN');
-          setActiveField(3); // Pasa a Altura Instrumento HI
+          if (selected.CD) {
+            setStationAtm(a => ({ ...a, CD: selected.CD }));
+          }
+          setLcdMessage(`PTO ${selected.PTO}\nCARGADO EN Y0,X0,Z0`);
+          setTimeout(() => {
+            setScreenState('OCC_ORIEN');
+            setActiveField(3); // Pasa a Altura Instrumento HI
+          }, 1000);
         } else {
           setBacksight({
             N: selected.N,
             E: selected.E,
-            Z: selected.Z
+            Z: selected.Z,
+            PTO: selected.PTO
           });
-          setLcdMessage(`BASE ${selected.PTO}\nCARGADA EN PTO ATRÁS`);
-          setScreenState('ERXYZ');
-          setActiveField(0);
+          setLcdMessage(`PTO ${selected.PTO}\nCARGADO EN Yref,Xref,Zref`);
+          setTimeout(() => {
+            setScreenState('ERXYZ');
+            setActiveField(3); // Pasa a PTO
+          }, 1000);
         }
       }
       return;
     }
 
-    // Formulario de Estacionamiento
+    // Formulario de Estacionamiento (11 campos con scroll)
     if (screenState === 'OCC_ORIEN') {
-      if (activeField < 3) {
+      if (activeField < 10) {
         setActiveField(f => f + 1);
       } else {
         setActiveField(0);
@@ -929,18 +1016,24 @@ export default function App() {
       return;
     }
 
-    // Formulario de Orientación: lanza disparo de comprobación
+    // Formulario de Orientación: lanza comprobación (AZ, HA-D, Acim)
     if (screenState === 'ERXYZ') {
-      if (activeField < 2) {
+      if (activeField < 3) {
         setActiveField(f => f + 1);
       } else {
-        iniciarComprobacionOrientacion();
+        prepararComprobacionOrientacion();
       }
       return;
     }
 
-    // 4. Confirmación de Orientación tras disparo de comprobación
+    // 4. Confirmación de Orientación
     if (screenState === 'CHECK_BS') {
+      ejecutarOrientacionFinal();
+      return;
+    }
+
+    // 5. Confirmación desde Ref.DisH ver
+    if (screenState === 'CHECK_BS_DIST') {
       ejecutarOrientacionFinal();
       return;
     }
@@ -1067,6 +1160,8 @@ export default function App() {
       setActiveField(0);
     } else if (screenState === 'CHECK_BS') {
       setScreenState('ERXYZ');
+    } else if (screenState === 'CHECK_BS_DIST') {
+      setScreenState('CHECK_BS');
     } else if (screenState === 'USB_MENU') {
       setScreenState('ROOT');
     } else if (screenState === 'USB_TTYPE') {
@@ -1160,11 +1255,11 @@ export default function App() {
     }
 
     if (screenState === 'OCC_ORIEN') {
+      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 10));
+      if (dir === 'DOWN') setActiveField(f => (f < 10 ? f + 1 : 0));
+    } else if (screenState === 'ERXYZ') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
       if (dir === 'DOWN') setActiveField(f => (f < 3 ? f + 1 : 0));
-    } else if (screenState === 'ERXYZ') {
-      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 2));
-      if (dir === 'DOWN') setActiveField(f => (f < 2 ? f + 1 : 0));
     } else if (screenState === 'KNOWN_NEW') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 4));
       if (dir === 'DOWN') setActiveField(f => (f < 4 ? f + 1 : 0));
@@ -1498,7 +1593,7 @@ export default function App() {
       return;
     }
 
-    // Estacionamiento: F1=[LEER], F3=[E.RXYZ], F4=[REG]
+    // Estacionamiento: F1=[CARG], F3=[E.RXYZ], F4=[REG]
     if (screenState === 'OCC_ORIEN') {
       if (fNum === 1) {
         setReadTargetContext('OCC');
@@ -1515,25 +1610,38 @@ export default function App() {
       return;
     }
 
-    // Orientar Punto Atrás: F1=[LEER], F4=[OK] -> Comprobación
+    // Orientar Punto Atrás: F1=[CARG], F4=[OK] -> Comprobación
     if (screenState === 'ERXYZ') {
       if (fNum === 1) {
         setReadTargetContext('BS');
         setViewKnownIdx(0);
         setScreenState('SELECT_KNOWN_PT');
       } else if (fNum === 4) {
-        commitCurrentField();
-        iniciarComprobacionOrientacion();
+        prepararComprobacionOrientacion();
       }
       return;
     }
 
-    // 4. Comprobación de Orientación: F1=[REMED], F3=[ESC], F4=[OK]
+    // 4. Comprobación de Orientación: F1=[REG], F2=[MED], F3=[NO], F4=[SI]
     if (screenState === 'CHECK_BS') {
       if (fNum === 1) {
-        iniciarComprobacionOrientacion();
+        ejecutarOrientacionFinal();
+      } else if (fNum === 2) {
+        iniciarMedicionDistanciaComprobacion();
       } else if (fNum === 3) {
         setScreenState('ERXYZ');
+      } else if (fNum === 4) {
+        ejecutarOrientacionFinal();
+      }
+      return;
+    }
+
+    // 5. Ref.DisH ver (Comprobación de distancia dDH): F1=[REG], F2=[ALT], F4=[OK]
+    if (screenState === 'CHECK_BS_DIST') {
+      if (fNum === 1) {
+        ejecutarOrientacionFinal();
+      } else if (fNum === 2) {
+        iniciarMedicionDistanciaComprobacion();
       } else if (fNum === 4) {
         ejecutarOrientacionFinal();
       }
@@ -1692,11 +1800,13 @@ export default function App() {
       case 'SELECT_KNOWN_PT':
         return ['ANT', 'SIG', 'ESC', 'CARG'];
       case 'OCC_ORIEN':
-        return ['LEER', '', 'E.RXYZ', 'REG'];
+        return ['CARG', '', 'E.RXYZ', 'REG'];
       case 'ERXYZ':
-        return ['LEER', '', 'AZIM', 'OK'];
+        return ['CARG', '', 'AZIM', 'OK'];
       case 'CHECK_BS':
-        return ['REMED', '', 'ESC', 'OK'];
+        return ['REG', 'MED', 'NO', 'SI'];
+      case 'CHECK_BS_DIST':
+        return ['REG', 'ALT', '', 'OK'];
       case 'OBS':
         return ['DIST', 'COORD', 'AUTO', 'OFS'];
       default:
@@ -2518,99 +2628,155 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (N0, E0, Z0, HI) */}
-                      {screenState === 'OCC_ORIEN' && (
+                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, HI + CAMPOS ATMOSFÉRICOS CON SCROLL) */}
+                      {screenState === 'OCC_ORIEN' && (() => {
+                        const occFields = [
+                          { label: 'Y0', val: `${station.N.toFixed(3)} m` },
+                          { label: 'X0', val: `${station.E.toFixed(3)} m` },
+                          { label: 'Z0', val: `${station.Z.toFixed(3)} m` },
+                          { label: 'HI', val: `${station.HI.toFixed(3)} m` },
+                          { label: 'Cd', val: stationAtm.CD },
+                          { label: 'Operador', val: stationAtm.operador },
+                          { label: 'Clima', val: stationAtm.clima },
+                          { label: 'Viento', val: stationAtm.viento },
+                          { label: 'Temp', val: stationAtm.temp },
+                          { label: 'Pres', val: stationAtm.pres },
+                          { label: 'PPm', val: stationAtm.ppm }
+                        ];
+
+                        const scrollOffset = activeField <= 3 ? 0 : Math.min(activeField - 3, occFields.length - 4);
+                        const visibleOccFields = occFields.slice(scrollOffset, scrollOffset + 4);
+
+                        return (
+                          <div className="space-y-0.5 font-mono text-xs">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                              <span>ESTACIONAMIENTO</span>
+                              <div className="flex items-center gap-1">
+                                {scrollOffset > 0 && <span className="text-[10px] text-neutral-900 font-bold">▲</span>}
+                                {scrollOffset + 4 < occFields.length && <span className="text-[10px] text-neutral-900 font-bold">▼</span>}
+                                <span className="text-[10px] font-bold">[{activeField + 1}/11]</span>
+                              </div>
+                            </div>
+                            {visibleOccFields.map((item, localIdx) => {
+                              const realIdx = scrollOffset + localIdx;
+                              const isCur = activeField === realIdx;
+                              return (
+                                <div
+                                  key={item.label}
+                                  onClick={() => {
+                                    commitCurrentField();
+                                    setActiveField(realIdx);
+                                  }}
+                                  className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
+                                    isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  }`}
+                                >
+                                  <span>{item.label}:</span>
+                                  <span>{isCur ? `${inputBuffer}_` : item.val}</span>
+                                </div>
+                              );
+                            })}
+                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                              {activeField >= 4 ? 'Datos Atmosféricos • ▲ / ▼: Scroll' : 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ESTADO 'ERXYZ': ORIENTAR PUNTO ATRÁS (Yref, Xref, Zref, PTO) */}
+                      {screenState === 'ERXYZ' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>ESTACIONAMIENTO</span>
-                            <span className="text-[10px] font-normal">F1=[LEER] • F3=[E.RXYZ]</span>
+                            <span>ORIENTAR (P. ATRÁS)</span>
+                            <span className="text-[10px] font-black">F1=[CARG] • F4=[OK]</span>
                           </div>
                           {[
-                            { label: 'N0', val: station.N },
-                            { label: 'E0', val: station.E },
-                            { label: 'Z0', val: station.Z },
-                            { label: 'HI', val: station.HI }
+                            { label: 'Yref', val: backsight.N },
+                            { label: 'Xref', val: backsight.E },
+                            { label: 'Zref', val: backsight.Z },
+                            { label: 'PTO', val: backsight.PTO || 'BS-1' }
                           ].map((item, idx) => {
                             const isCur = activeField === idx;
                             return (
                               <div
                                 key={item.label}
-                                onClick={() => setActiveField(idx)}
+                                onClick={() => {
+                                  commitCurrentField();
+                                  setActiveField(idx);
+                                }}
                                 className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
                                   isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}:</span>
-                                <span>{isCur ? `${inputBuffer}_` : `${item.val.toFixed(3)} m`}</span>
+                                <span>
+                                  {isCur
+                                    ? `${inputBuffer}_`
+                                    : idx === 3
+                                    ? String(item.val)
+                                    : `${Number(item.val).toFixed(3)} m`}
+                                </span>
                               </div>
                             );
                           })}
-                        </div>
-                      )}
-
-                      {/* ESTADO 'ERXYZ': ORIENTAR PUNTO ATRÁS (NBS, EBS, ZBS) */}
-                      {screenState === 'ERXYZ' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>ORIENTAR (PTO ATRÁS)</span>
-                            <span className="text-[10px] font-black">F1=[LEER] • F4=[OK]</span>
-                          </div>
-                          {[
-                            { label: 'NBS', val: backsight.N },
-                            { label: 'EBS', val: backsight.E },
-                            { label: 'ZBS', val: backsight.Z }
-                          ].map((item, idx) => {
-                            const isCur = activeField === idx;
-                            return (
-                              <div
-                                key={item.label}
-                                onClick={() => setActiveField(idx)}
-                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
-                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                                }`}
-                              >
-                                <span>{item.label}:</span>
-                                <span>{isCur ? `${inputBuffer}_` : `${item.val.toFixed(3)} m`}</span>
-                              </div>
-                            );
-                          })}
-                          <div className="text-[10px] text-neutral-800 text-center font-bold pt-0.5 font-sans">
-                            [F1] LEER Base • [F4] Comprobar Error con EDM
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            [F1] CARG Base • [F4] OK (Comprobar Orientación)
                           </div>
                         </div>
                       )}
 
-                      {/* 4. ESTADO 'CHECK_BS': COMPROBACIÓN DE ORIENTACIÓN (ERROR DELTA) */}
+                      {/* 4. ESTADO 'CHECK_BS': COMPROBACIÓN DE ORIENTACIÓN (AZ, HA-D, Acim) */}
                       {screenState === 'CHECK_BS' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>COMPROBAR ORIEN.</span>
-                            <span className="text-[10px] font-black">F4=[OK]</span>
+                            <span>COMPROB. ORIEN.</span>
+                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
                           </div>
-                          <div className="space-y-0.5 bg-black/5 p-1 rounded">
-                            <div className="flex justify-between font-black">
-                              <span>dHD :</span>
-                              <span className={Math.abs(checkBsData.dHD) <= 0.01 ? 'text-emerald-950 font-bold' : 'text-amber-950 font-bold'}>
-                                {checkBsData.dHD >= 0 ? '+' : ''}{checkBsData.dHD.toFixed(3)} m
-                              </span>
+                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold">AZ   :</span>
+                              <span className="font-mono font-bold">{formatDMS(checkBsData.azTeo)}</span>
                             </div>
-                            <div className="flex justify-between font-black">
-                              <span>dZ  :</span>
-                              <span className={Math.abs(checkBsData.dZ) <= 0.01 ? 'text-emerald-950 font-bold' : 'text-amber-950 font-bold'}>
-                                {checkBsData.dZ >= 0 ? '+' : ''}{checkBsData.dZ.toFixed(3)} m
-                              </span>
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold">HA-D :</span>
+                              <span className="font-mono font-bold">{formatDMS(checkBsData.haD)}</span>
                             </div>
-                            <div className="flex justify-between text-[11px]">
-                              <span>AZIM :</span>
-                              <span>{formatDMS(checkBsData.azTeo)}</span>
-                            </div>
-                            <div className="flex justify-between text-[10px] text-neutral-700 border-t border-neutral-800/20 pt-0.5">
-                              <span>DH Med: {checkBsData.dhMed.toFixed(3)}m</span>
-                              <span>Teo: {checkBsData.dhTeo.toFixed(3)}m</span>
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold">Acim :</span>
+                              <span className="font-mono font-bold">{formatDMS(checkBsData.acim)}</span>
                             </div>
                           </div>
-                          <div className="text-[10px] text-neutral-800 text-center font-bold pt-0.5 font-sans">
-                            F1=[REMED] • F4=[OK] para fijar estación
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            F2=[MED]: Comprobar dDH • F4=[SI]: Fijar AZ
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 5. ESTADO 'CHECK_BS_DIST': Ref.DisH ver (dDH = Obs H - Calc DH) */}
+                      {screenState === 'CHECK_BS_DIST' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>Ref.DisH ver</span>
+                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
+                          </div>
+                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-black">dDH    :</span>
+                              <span className={`font-mono font-black ${Math.abs(checkBsData.dDH) <= 0.005 ? 'text-emerald-950' : 'text-amber-950'}`}>
+                                {checkBsData.dDH >= 0 ? '+' : ''}{checkBsData.dDH.toFixed(3)} m
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-[11px] text-neutral-800">
+                              <span>Calc DH:</span>
+                              <span className="font-mono">{checkBsData.calcDH.toFixed(3)} m</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[11px] text-neutral-800">
+                              <span>Obs H  :</span>
+                              <span className="font-mono">{checkBsData.obsH.toFixed(3)} m</span>
+                            </div>
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            F2=[ALT]: Re-medir • F4=[OK]: Fijar Azimut
                           </div>
                         </div>
                       )}

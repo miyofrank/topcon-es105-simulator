@@ -56,7 +56,9 @@ type EdmMode = 'prism' | 'sheet' | 'non_prism';
 
 // ESTADOS ESTRICTOS DE LA MÁQUINA LCD TOPCON ES-105:
 // 'TILT'           : Compensador Digital de arranque (Nivel Electrónico X/Y). F1=[OK]
-// 'MAIN'           : Pantalla Principal en vivo (V, HD, SD). Botón FUNC alterna Pág 1 / Pág 2.
+// 'ROOT'           : Pantalla Raíz del equipo (ES-105, S/N, Ver, Tra). F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
+// 'MED'            : Pantalla de Medición (G-0, H-0, V-0, PPm 11). Pág 1/2/3 alternadas con [FUNC]
+// 'MAIN'           : Pantalla de compatibilidad
 // 'COORD_MENU'     : Menú COORD (1. Occ.Orien., 2. Observación)
 // 'OCC_ORIEN'      : Estacionamiento (N0, E0, Z0, HI). F1=[LEER], F3=[E.RXYZ], F4=[REG]
 // 'ERXYZ'          : Orientar por Punto Atrás (NBS, EBS, ZBS). F1=[LEER], F4=[OK] -> Comprobación
@@ -72,6 +74,8 @@ type EdmMode = 'prism' | 'sheet' | 'non_prism';
 // 'USB_SAVE_JOB'   : Guardar datos a USB (Seleccionar Trabajo y [ENT] para exportar CSV)
 type ScreenState =
   | 'TILT'
+  | 'ROOT'
+  | 'MED'
   | 'MAIN'
   | 'COORD_MENU'
   | 'OCC_ORIEN'
@@ -188,6 +192,7 @@ export default function App() {
   // =========================================================================
   // Arranque: Inicia obligatoriamente en el Compensador Digital (Nivel Electrónico)
   const [screenState, setScreenState] = useState<ScreenState>('TILT');
+  const [medPage, setMedPage] = useState<1 | 2 | 3>(1); // Pág 1, 2, 3 en pantalla MED (alternada con [FUNC])
   const [mainPage, setMainPage] = useState<1 | 2>(1); // Pág 1 / Pág 2 alternada con botón FUNC
   const [edmMode, setEdmMode] = useState<EdmMode>('prism'); // Alternado con botón SFT
   const [menuSelection, setMenuSelection] = useState<number>(1);
@@ -473,10 +478,12 @@ export default function App() {
     }
   }, [playBeep, isCurrentFieldAlpha]);
 
-  // Tecla física [FUNC]: Alterna páginas de la Pantalla Principal (Pág 1 / Pág 2)
+  // Tecla física [FUNC]: Alterna páginas de MED (Pág 1/2/3) o Pantalla Principal (Pág 1 / Pág 2)
   const handleFuncPress = useCallback(() => {
     playBeep(1200, 0.05);
-    if (screenState === 'MAIN') {
+    if (screenState === 'MED') {
+      setMedPage(p => (p === 1 ? 2 : p === 2 ? 3 : 1));
+    } else if (screenState === 'MAIN') {
       setMainPage(p => (p === 1 ? 2 : 1));
     } else {
       setIsBacklightOn(b => !b);
@@ -486,6 +493,14 @@ export default function App() {
   // Teclado físico numérico y de símbolos
   const handleKeypadPress = useCallback((key: string) => {
     playBeep(1150, 0.04);
+
+    // Acceso numérico rápido desde ROOT
+    if (screenState === 'ROOT') {
+      if (key === '1') { setScreenState('MED'); setMedPage(1); }
+      else if (key === '2') { setScreenState('USB_MENU'); setUsbMenuSelection(1); }
+      else if (key === '3') { setScreenState('DATO_MENU'); setMenuSelection(1); }
+      return;
+    }
 
     // Selección numérica en menú COORD
     if (screenState === 'COORD_MENU') {
@@ -517,6 +532,7 @@ export default function App() {
 
     if (
       screenState === 'TILT' ||
+      screenState === 'MED' ||
       screenState === 'MAIN' ||
       screenState === 'KNOWN_PTS' ||
       screenState === 'SELECT_KNOWN_PT' ||
@@ -543,7 +559,26 @@ export default function App() {
 
     // Arranque
     if (screenState === 'TILT') {
-      setScreenState('MAIN');
+      setScreenState('ROOT');
+      return;
+    }
+
+    // Pantalla ROOT
+    if (screenState === 'ROOT') {
+      setScreenState('MED');
+      setMedPage(1);
+      return;
+    }
+
+    // Pantalla MED
+    if (screenState === 'MED') {
+      if (medPage === 3) {
+        setScreenState('COORD_MENU');
+        setMenuSelection(1);
+      } else {
+        setIsMeasuring(true);
+        setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
+      }
       return;
     }
 
@@ -696,12 +731,13 @@ export default function App() {
     if (screenState === 'USB_SAVE_JOB') {
       exportarAUSB();
       setTimeout(() => {
-        setScreenState('MAIN');
+        setScreenState('ROOT');
       }, 1600);
       return;
     }
   }, [
     screenState,
+    medPage,
     menuSelection,
     activeField,
     commitCurrentField,
@@ -719,18 +755,21 @@ export default function App() {
     playLaserBeep
   ]);
 
-  // Botón físico ESC (Accede al menú DATO o regresa jerárquicamente)
+  // Botón físico ESC (Al pulsar repetidamente desde cualquier estado, llega a 'ROOT')
   const handleEscPress = useCallback(() => {
     playBeep(900, 0.07);
     commitCurrentField();
     setLcdMessage(null);
 
-    if (screenState === 'MAIN') {
-      // Desde la pantalla principal, ESC abre directamente el Menú DATO
-      setScreenState('DATO_MENU');
-      setMenuSelection(1);
+    if (screenState === 'ROOT') {
+      // Ya estamos en la raíz (ROOT); se mantiene
+      return;
+    } else if (screenState === 'MED') {
+      setScreenState('ROOT');
+    } else if (screenState === 'MAIN') {
+      setScreenState('ROOT');
     } else if (screenState === 'DATO_MENU') {
-      setScreenState('MAIN');
+      setScreenState('ROOT');
     } else if (screenState === 'JOB') {
       setScreenState('DATO_MENU');
     } else if (screenState === 'KNOWN_PTS') {
@@ -740,7 +779,7 @@ export default function App() {
     } else if (screenState === 'SELECT_KNOWN_PT') {
       setScreenState(readTargetContext === 'OCC' ? 'OCC_ORIEN' : 'ERXYZ');
     } else if (screenState === 'COORD_MENU') {
-      setScreenState('MAIN');
+      setScreenState('MED');
     } else if (screenState === 'OCC_ORIEN' || screenState === 'OBS') {
       setScreenState('COORD_MENU');
       setActiveField(0);
@@ -750,11 +789,15 @@ export default function App() {
     } else if (screenState === 'CHECK_BS') {
       setScreenState('ERXYZ');
     } else if (screenState === 'USB_MENU') {
-      setScreenState('MAIN');
+      setScreenState('ROOT');
     } else if (screenState === 'USB_TTYPE') {
       setScreenState('USB_MENU');
     } else if (screenState === 'USB_SAVE_JOB') {
       setScreenState('USB_TTYPE');
+    } else if (screenState === 'TILT') {
+      setScreenState('ROOT');
+    } else {
+      setScreenState('ROOT');
     }
   }, [screenState, readTargetContext, commitCurrentField, playBeep]);
 
@@ -817,15 +860,88 @@ export default function App() {
     // Estado TILT (Compensador de arranque): F1=[OK]
     if (screenState === 'TILT') {
       if (fNum === 1) {
-        setScreenState('MAIN');
+        setScreenState('ROOT');
       } else if (fNum === 4) {
         setIsOriented(false);
-        setScreenState('MAIN');
+        setScreenState('ROOT');
       }
       return;
     }
 
-    // Pantalla Principal (Pág 1 y Pág 2)
+    // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
+    if (screenState === 'ROOT') {
+      if (fNum === 1) {
+        // F1=[OBS] -> va a Observación (pantalla MED)
+        setScreenState('MED');
+        setMedPage(1);
+      } else if (fNum === 2) {
+        // F2=[USB] -> menú USB
+        setScreenState('USB_MENU');
+        setUsbMenuSelection(1);
+      } else if (fNum === 3) {
+        // F3=[DATO] -> menú DATO
+        setScreenState('DATO_MENU');
+        setMenuSelection(1);
+      } else if (fNum === 4) {
+        // F4=[CNFG] -> Configuración
+        setLcdMessage('CONFIGURACIÓN ES-105\nUNIDAD: DEG/METRO\nEDM: PRISMA');
+      }
+      return;
+    }
+
+    // 2. ESTADO MED (Medición): Pág 1, Pág 2, Pág 3
+    if (screenState === 'MED') {
+      if (medPage === 1) {
+        // Pág 1: [MENU] [COMP] [ANG-H] [EDM]
+        if (fNum === 1) {
+          setScreenState('COORD_MENU');
+          setMenuSelection(1);
+        } else if (fNum === 2) {
+          setScreenState('TILT');
+        } else if (fNum === 3) {
+          setLcdMessage(`ÁNGULO H RETENIDO:\n${formatDMS(envHD)}`);
+        } else if (fNum === 4) {
+          handleShiftPress();
+        }
+      } else if (medPage === 2) {
+        // Pág 2: [MDR] [DESPLZ] [TOPO] [REPL]
+        if (fNum === 1) {
+          setIsMeasuring(true);
+          setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
+        } else if (fNum === 2) {
+          setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+        } else if (fNum === 3) {
+          setScreenState('OBS');
+          setActiveField(0);
+        } else if (fNum === 4) {
+          setLcdMessage('MODO REPLANTEO (S-O)\nSELECCIONE PTO');
+        }
+      } else {
+        // Pág 3: [MED] [GHV] [AZ-0] [COORD]
+        if (fNum === 1) {
+          setIsMeasuring(true);
+          setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
+        } else if (fNum === 2) {
+          const radV = envV * (Math.PI / 180);
+          const az = ((azimutInicial + envHD) % 360) * (Math.PI / 180);
+          const dh = envSD * Math.sin(radV);
+          const n = station.N + dh * Math.cos(az);
+          const e = station.E + dh * Math.sin(az);
+          const z = station.Z + station.HI + envSD * Math.cos(radV) - target.HR;
+          setLcdMessage(`COORD EN VIVO:\nN: ${n.toFixed(3)}\nE: ${e.toFixed(3)}\nZ: ${z.toFixed(3)}`);
+        } else if (fNum === 3) {
+          setEnvHD(0);
+          setLcdMessage('ÁNGULO HORIZONTAL\nSETEADO A 0°');
+        } else if (fNum === 4) {
+          // En la Pág 3, si el usuario pulsa F4 (COORD), el estado pasa a COORD_MENU
+          setScreenState('COORD_MENU');
+          setMenuSelection(1);
+        }
+      }
+      return;
+    }
+
+    // Pantalla Principal (Pág 1 y Pág 2 - compatibilidad)
     if (screenState === 'MAIN') {
       if (mainPage === 1) {
         // Pág 1: F1=[DIST], F2=[SHV], F3=[OSET], F4=[COORD]
@@ -996,9 +1112,11 @@ export default function App() {
     }
   }, [
     screenState,
+    medPage,
     mainPage,
     commitCurrentField,
     handleEnterPress,
+    handleShiftPress,
     iniciarComprobacionOrientacion,
     ejecutarOrientacionFinal,
     ejecutarLevantamientoAuto,
@@ -1078,6 +1196,12 @@ export default function App() {
     switch (screenState) {
       case 'TILT':
         return ['OK', '', '', 'TILT'];
+      case 'ROOT':
+        return ['OBS', 'USB', 'DATO', 'CNFG'];
+      case 'MED':
+        if (medPage === 1) return ['MENU', 'COMP', 'ANG-H', 'EDM'];
+        if (medPage === 2) return ['MDR', 'DESPLZ', 'TOPO', 'REPL'];
+        return ['MED', 'GHV', 'AZ-0', 'COORD'];
       case 'MAIN':
         return mainPage === 1
           ? ['DIST', 'SHV', 'OSET', 'COORD']
@@ -1246,6 +1370,10 @@ export default function App() {
                     <span className="bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 rounded text-[10px]">
                       {screenState === 'TILT'
                         ? 'TIL'
+                        : screenState === 'ROOT'
+                        ? 'ROOT'
+                        : screenState === 'MED'
+                        ? `P${medPage}`
                         : screenState === 'MAIN'
                         ? `P${mainPage}`
                         : screenState === 'OBS'
@@ -1330,7 +1458,57 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'MAIN': PANTALLA PRINCIPAL (Pág 1 / Pág 2) */}
+                      {/* 1. ESTADO 'ROOT': PANTALLA RAÍZ TOPCON ES-105 */}
+                      {screenState === 'ROOT' && (
+                        <div className="space-y-1.5 font-mono text-xs px-1 py-1">
+                          <div className="flex justify-between items-center font-bold text-[13px] border-b border-neutral-800/30 pb-0.5">
+                            <span>ES-105</span>
+                            <span className="text-[12px] text-neutral-800 font-bold">N/S GZ6409</span>
+                          </div>
+                          <div className="text-neutral-900 font-bold text-xs pt-0.5">
+                            Ver. 2.57U1-10
+                          </div>
+                          <div className="text-neutral-900 font-bold text-xs">
+                            1.03_02
+                          </div>
+                          <div className="flex justify-between items-center font-bold text-xs pt-1 border-t border-neutral-800/30">
+                            <span>Tra. {jobName}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. ESTADO 'MED': PANTALLA DE MEDICIÓN CON PAGINACIÓN P1, P2, P3 */}
+                      {screenState === 'MED' && (
+                        <div className="space-y-1 font-mono text-[13px]">
+                          <div className="flex justify-between items-center text-xs font-black border-b border-neutral-800/30 pb-0.5">
+                            <span className="text-[13px] tracking-wider text-neutral-950 font-black">MED</span>
+                            <div className="flex items-center gap-2 font-bold">
+                              <span className="text-[11px] text-neutral-800">PPm 11</span>
+                              <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 rounded font-mono font-bold">
+                                P{medPage}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
+                            <span className="font-bold">G-0 :</span>
+                            <span className="font-black text-right">{envSD.toFixed(3)} m</span>
+                          </div>
+                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
+                            <span className="font-bold">H-0 :</span>
+                            <span className="font-black text-right">{formatDMS(envHD)}</span>
+                          </div>
+                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
+                            <span className="font-bold">V-0 :</span>
+                            <span className="font-black text-right">{formatDMS(envV)}</span>
+                          </div>
+                          <div className="text-[10px] text-neutral-700 flex justify-between font-sans font-bold pt-0.5">
+                            <span>Pág {medPage}/3 (FUNC)</span>
+                            <span>ESC = ROOT</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'MAIN': PANTALLA PRINCIPAL (Pág 1 / Pág 2 - compatibilidad) */}
                       {screenState === 'MAIN' && (
                         <div className="space-y-1 font-mono text-[13px]">
                           <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
@@ -1347,7 +1525,7 @@ export default function App() {
                           </div>
                           <div className="text-[10px] text-neutral-700 pt-0.5 flex justify-between font-sans font-bold">
                             <span>Pág {mainPage}/2 (Botón FUNC)</span>
-                            <span>ESC = Menú DATO</span>
+                            <span>ESC = ROOT</span>
                           </div>
                         </div>
                       )}

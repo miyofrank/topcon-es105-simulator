@@ -84,6 +84,12 @@ type ScreenState =
   | 'SELECT_KNOWN_PT'
   | 'OBS'
   | 'DATO_MENU'
+  | 'JOB_MENU'
+  | 'JOB_SELECT'
+  | 'JOB_LIST'
+  | 'JOB_DETAILS'
+  | 'JOB_DELETE_LIST'
+  | 'JOB_DELETE_CONFIRM'
   | 'JOB'
   | 'KNOWN_PTS'
   | 'KNOWN_NEW'
@@ -145,6 +151,17 @@ export default function App() {
   });
 
   const [jobName, setJobName] = useState<string>('PROYECTO1');
+
+  // Gestión de Trabajos (Menú TRABJ): Trabajos guardados con asterisco por defecto (* no exportado)
+  const [jobsList, setJobsList] = useState<string[]>([
+    '*PROYECTO1',
+    '*JOB02',
+    '*TOPOGRAFIA'
+  ]);
+  const [jobMenuSelection, setJobMenuSelection] = useState<number>(1);
+  const [jobSelectField, setJobSelectField] = useState<number>(0);
+  const [selectedJobIdx, setSelectedJobIdx] = useState<number>(0);
+  const [jobDeleteTarget, setJobDeleteTarget] = useState<string>('');
 
   // Memoria interna de puntos de la Estación Total (Puntos levantados)
   const [points, setPoints] = useState<TopoPoint[]>([
@@ -252,8 +269,8 @@ export default function App() {
       if (activeField === 0) setInputBuffer(String(target.HR));
       if (activeField === 1) setInputBuffer(target.CD);
       if (activeField === 2) setInputBuffer(target.PTO);
-    } else if (screenState === 'JOB') {
-      setInputBuffer(jobName);
+    } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
+      setInputBuffer(jobName.replace(/^\*/, ''));
     } else if (screenState === 'KNOWN_NEW') {
       if (activeField === 0) setInputBuffer(newKnownPoint.PTO);
       if (activeField === 1) setInputBuffer(String(newKnownPoint.N));
@@ -265,7 +282,7 @@ export default function App() {
 
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
-    if (screenState === 'JOB') return true;
+    if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
     if (screenState === 'OBS' && (activeField === 1 || activeField === 2)) return true; // CD o PTO
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     return false;
@@ -287,9 +304,14 @@ export default function App() {
       if (activeField === 0 && !isNaN(val)) setTarget(t => ({ ...t, HR: val }));
       if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer }));
       if (activeField === 2) setTarget(t => ({ ...t, PTO: inputBuffer.trim() || '1' }));
-    } else if (screenState === 'JOB') {
+    } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       if (inputBuffer.trim()) {
-        setJobName(inputBuffer.trim());
+        const clean = inputBuffer.trim();
+        const oldClean = jobName.replace(/^\*/, '');
+        setJobName(clean);
+        setJobsList(prev =>
+          prev.map(j => (j.replace(/^\*/, '') === oldClean ? (j.startsWith('*') ? `*${clean}` : clean) : j))
+        );
       }
     } else if (screenState === 'KNOWN_NEW') {
       if (activeField === 0) setNewKnownPoint(p => ({ ...p, PTO: inputBuffer.trim() || 'BASE' }));
@@ -313,7 +335,7 @@ export default function App() {
         .map(p => `${p.PTO},${p.N.toFixed(3)},${p.E.toFixed(3)},${p.Z.toFixed(3)},${p.CD}`)
         .join('\n');
 
-      const cleanJob = (jobName || 'PROYECTO1').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanJob = (jobName || 'PROYECTO1').trim().replace(/^\*/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
       const dateStr = new Date().toISOString().slice(0, 10);
       const fileName = `${cleanJob}_${dateStr}.csv`;
 
@@ -326,6 +348,9 @@ export default function App() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+
+      // El trabajo exportado pierde el asterisco en la lista
+      setJobsList(prev => prev.map(j => (j.replace(/^\*/, '') === cleanJob ? cleanJob : j)));
 
       setLcdMessage(`¡ÉXITO EN USB!\nARCHIVO: ${fileName}\nPUNTOS: ${points.length}`);
     }, 600);
@@ -509,10 +534,20 @@ export default function App() {
       return;
     }
 
-    // Selección numérica en menú DATO (Solo 1. TRABAJO y 2. DATOS CONOCIDOS)
+    // Selección numérica en menú DATO (1. TRABAJO, 2. DATOS CONOCIDOS)
     if (screenState === 'DATO_MENU') {
-      if (key === '1') { setScreenState('JOB'); setInputBuffer(jobName); }
+      if (key === '1') { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
       else if (key === '2') { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
+      return;
+    }
+
+    // 1. Submenú TRABJ: 5 opciones numéricas
+    if (screenState === 'JOB_MENU') {
+      if (key === '1') { setScreenState('JOB_SELECT'); }
+      else if (key === '2') { setScreenState('JOB_DETAILS'); setInputBuffer(jobName.replace(/^\*/, '')); }
+      else if (key === '3') { setScreenState('JOB_DELETE_LIST'); setSelectedJobIdx(0); }
+      else if (key === '4') { setLcdMessage('SALIDA COMUNIC:\nENVIANDO DATOS RS-232C'); }
+      else if (key === '5') { setLcdMessage('CONFIG. COMUNIC:\nBAUD: 1200\nPARIDAD: NONE'); }
       return;
     }
 
@@ -536,7 +571,11 @@ export default function App() {
       screenState === 'MAIN' ||
       screenState === 'KNOWN_PTS' ||
       screenState === 'SELECT_KNOWN_PT' ||
-      screenState === 'CHECK_BS'
+      screenState === 'CHECK_BS' ||
+      screenState === 'JOB_SELECT' ||
+      screenState === 'JOB_LIST' ||
+      screenState === 'JOB_DELETE_LIST' ||
+      screenState === 'JOB_DELETE_CONFIRM'
     ) return;
 
     if (key === 'BS') {
@@ -597,12 +636,89 @@ export default function App() {
     // Menú DATO
     if (screenState === 'DATO_MENU') {
       if (menuSelection === 1) {
-        setScreenState('JOB');
-        setInputBuffer(jobName);
+        setScreenState('JOB_MENU');
+        setJobMenuSelection(1);
       } else if (menuSelection === 2) {
         setScreenState('KNOWN_PTS');
         setViewKnownIdx(0);
       }
+      return;
+    }
+
+    // 1. Submenú TRABJ: 5 opciones
+    if (screenState === 'JOB_MENU') {
+      if (jobMenuSelection === 1) {
+        setScreenState('JOB_SELECT');
+      } else if (jobMenuSelection === 2) {
+        setScreenState('JOB_DETAILS');
+        setInputBuffer(jobName.replace(/^\*/, ''));
+      } else if (jobMenuSelection === 3) {
+        setScreenState('JOB_DELETE_LIST');
+        setSelectedJobIdx(0);
+      } else if (jobMenuSelection === 4) {
+        setLcdMessage('SALIDA COMUNIC:\nENVIANDO DATOS RS-232C');
+      } else if (jobMenuSelection === 5) {
+        setLcdMessage('CONFIG. COMUNIC:\nBAUD: 1200\nPARIDAD: NONE');
+      }
+      return;
+    }
+
+    // 2. Selec TRABJ
+    if (screenState === 'JOB_SELECT') {
+      setScreenState('JOB_MENU');
+      return;
+    }
+
+    // 2. Lista de TRABJ
+    if (screenState === 'JOB_LIST') {
+      const selected = jobsList[selectedJobIdx] || '*PROYECTO1';
+      setJobName(selected.replace(/^\*/, ''));
+      playLaserBeep();
+      setLcdMessage(`TRABJ SELECCIONADO:\n${selected}`);
+      setTimeout(() => {
+        setScreenState('JOB_SELECT');
+      }, 1000);
+      return;
+    }
+
+    // 3. Detalles de TRABJ
+    if (screenState === 'JOB_DETAILS') {
+      const clean = inputBuffer.trim() || 'PROYECTO1';
+      const oldClean = jobName.replace(/^\*/, '');
+      setJobName(clean);
+      setJobsList(prev =>
+        prev.map(j => (j.replace(/^\*/, '') === oldClean ? (j.startsWith('*') ? `*${clean}` : clean) : j))
+      );
+      playLaserBeep();
+      setLcdMessage(`DETALLES GUARDADOS:\n${clean}`);
+      setTimeout(() => {
+        setScreenState('JOB_MENU');
+      }, 1200);
+      return;
+    }
+
+    // 4. Borrar TRABJ - Selección
+    if (screenState === 'JOB_DELETE_LIST') {
+      const target = jobsList[selectedJobIdx];
+      if (target) {
+        setJobDeleteTarget(target);
+        setScreenState('JOB_DELETE_CONFIRM');
+      }
+      return;
+    }
+
+    // 4. Borrar TRABJ - Confirmación con [ENT]
+    if (screenState === 'JOB_DELETE_CONFIRM') {
+      setJobsList(prev => {
+        const filtered = prev.filter(j => j !== jobDeleteTarget);
+        return filtered.length > 0 ? filtered : ['*TRAB_01'];
+      });
+      playLaserBeep();
+      setLcdMessage(`${jobDeleteTarget}\nBORRADO`);
+      setTimeout(() => {
+        setSelectedJobIdx(0);
+        setScreenState('JOB_DELETE_LIST');
+      }, 1200);
       return;
     }
 
@@ -746,6 +862,10 @@ export default function App() {
     exportarAUSB,
     inputBuffer,
     jobName,
+    jobsList,
+    jobMenuSelection,
+    selectedJobIdx,
+    jobDeleteTarget,
     newKnownPoint,
     knownPoints,
     viewKnownIdx,
@@ -770,8 +890,20 @@ export default function App() {
       setScreenState('ROOT');
     } else if (screenState === 'DATO_MENU') {
       setScreenState('ROOT');
-    } else if (screenState === 'JOB') {
+    } else if (screenState === 'JOB_MENU') {
       setScreenState('DATO_MENU');
+    } else if (screenState === 'JOB_SELECT') {
+      setScreenState('JOB_MENU');
+    } else if (screenState === 'JOB_LIST') {
+      setScreenState('JOB_SELECT');
+    } else if (screenState === 'JOB_DETAILS') {
+      setScreenState('JOB_MENU');
+    } else if (screenState === 'JOB_DELETE_LIST') {
+      setScreenState('JOB_MENU');
+    } else if (screenState === 'JOB_DELETE_CONFIRM') {
+      setScreenState('JOB_DELETE_LIST');
+    } else if (screenState === 'JOB') {
+      setScreenState('JOB_MENU');
     } else if (screenState === 'KNOWN_PTS') {
       setScreenState('DATO_MENU');
     } else if (screenState === 'KNOWN_NEW') {
@@ -820,6 +952,27 @@ export default function App() {
       return;
     }
 
+    if (screenState === 'JOB_MENU') {
+      if (dir === 'UP') setJobMenuSelection(prev => (prev > 1 ? prev - 1 : 5));
+      if (dir === 'DOWN') setJobMenuSelection(prev => (prev < 5 ? prev + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'JOB_SELECT') {
+      if (dir === 'UP' || dir === 'DOWN') setJobSelectField(f => (f === 0 ? 1 : 0));
+      return;
+    }
+
+    if (screenState === 'JOB_LIST' || screenState === 'JOB_DELETE_LIST') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setSelectedJobIdx(i => (i > 0 ? i - 1 : Math.max(0, jobsList.length - 1)));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+      }
+      return;
+    }
+
     if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE') {
       if (dir === 'UP' || dir === 'DOWN') {
         setUsbMenuSelection(prev => (prev === 1 ? 2 : 1));
@@ -850,7 +1003,7 @@ export default function App() {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 2));
       if (dir === 'DOWN') setActiveField(f => (f < 2 ? f + 1 : 0));
     }
-  }, [screenState, knownPoints.length, commitCurrentField, playBeep]);
+  }, [screenState, knownPoints.length, jobsList.length, commitCurrentField, playBeep]);
 
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
@@ -994,12 +1147,85 @@ export default function App() {
 
     // Guardar Trabajo USB
     if (screenState === 'USB_SAVE_JOB') {
-      if (fNum === 3) setScreenState('JOB');
+      if (fNum === 3) setScreenState('JOB_SELECT');
       else if (fNum === 4) handleEnterPress();
       return;
     }
 
-    // Pantalla TRABAJO
+    // 1. Submenú TRABJ: F4=[ENT]
+    if (screenState === 'JOB_MENU') {
+      if (fNum === 4) handleEnterPress();
+      return;
+    }
+
+    // 2. Selec TRABJ: F1=[LIST], F4=[OK]
+    if (screenState === 'JOB_SELECT') {
+      if (fNum === 1) {
+        setScreenState('JOB_LIST');
+        setSelectedJobIdx(0);
+      } else if (fNum === 4) {
+        setScreenState('JOB_MENU');
+      }
+      return;
+    }
+
+    // 2. Lista visual de TRABJ: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
+    if (screenState === 'JOB_LIST') {
+      if (fNum === 1) {
+        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+      } else if (fNum === 2) {
+        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+      } else if (fNum === 3) {
+        setScreenState('JOB_SELECT');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // 3. Detalles de TRABJ: F3=[NUM/ALF], F4=[OK]
+    if (screenState === 'JOB_DETAILS') {
+      if (fNum === 3) setIsAlphaKeyboardOpen(k => !k);
+      else if (fNum === 4) handleEnterPress();
+      return;
+    }
+
+    // 4. Borrar TRABJ - Lista: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
+    if (screenState === 'JOB_DELETE_LIST') {
+      if (fNum === 1) {
+        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+      } else if (fNum === 2) {
+        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+      } else if (fNum === 3) {
+        setScreenState('JOB_MENU');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // 4. Borrar TRABJ - Confirmación: F3=[NO], F4=[SI]
+    if (screenState === 'JOB_DELETE_CONFIRM') {
+      if (fNum === 3) {
+        // [NO]: Cancelar
+        setScreenState('JOB_DELETE_LIST');
+      } else if (fNum === 4) {
+        // [SI]: Solo si se presiona F4, el trabajo se elimina del array
+        setJobsList(prev => {
+          const filtered = prev.filter(j => j !== jobDeleteTarget);
+          return filtered.length > 0 ? filtered : ['*TRAB_01'];
+        });
+        playLaserBeep();
+        setLcdMessage(`${jobDeleteTarget}\nBORRADO`);
+        setTimeout(() => {
+          setSelectedJobIdx(0);
+          setScreenState('JOB_DELETE_LIST');
+        }, 1200);
+      }
+      return;
+    }
+
+    // Pantalla TRABAJO (compatibilidad)
     if (screenState === 'JOB') {
       if (fNum === 3) setIsAlphaKeyboardOpen(k => !k);
       else if (fNum === 4) handleEnterPress();
@@ -1128,6 +1354,8 @@ export default function App() {
     azimutInicial,
     station,
     target.HR,
+    jobsList.length,
+    jobDeleteTarget,
     playBeep,
     playLaserBeep
   ]);
@@ -1208,9 +1436,20 @@ export default function App() {
           : ['DATO', 'USB', 'TILT', 'COORD'];
       case 'COORD_MENU':
       case 'DATO_MENU':
+      case 'JOB_MENU':
       case 'USB_MENU':
       case 'USB_TTYPE':
         return ['', '', '', 'ENT'];
+      case 'JOB_SELECT':
+        return ['LIST', '', '', 'OK'];
+      case 'JOB_LIST':
+        return ['ANT', 'SIG', 'ESC', 'ENT'];
+      case 'JOB_DETAILS':
+        return ['', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'OK'];
+      case 'JOB_DELETE_LIST':
+        return ['ANT', 'SIG', 'ESC', 'ENT'];
+      case 'JOB_DELETE_CONFIRM':
+        return ['', '', 'NO', 'SI'];
       case 'USB_SAVE_JOB':
         return ['', '', 'LIST', 'ENT'];
       case 'JOB':
@@ -1544,7 +1783,7 @@ export default function App() {
                               key={item.id}
                               onClick={() => {
                                 setMenuSelection(item.id);
-                                if (item.id === 1) { setScreenState('JOB'); setInputBuffer(jobName); }
+                                if (item.id === 1) { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
                                 else if (item.id === 2) { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
                               }}
                               className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
@@ -1561,7 +1800,176 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'JOB': EDICIÓN ALFANUMÉRICA DEL NOMBRE DE PROYECTO */}
+                      {/* 1. SUBMENÚ TRABJ (5 OPCIONES ESTRICTAS) */}
+                      {screenState === 'JOB_MENU' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- TRABJ ---</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{jobMenuSelection}/5]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. Selec TRABJ' },
+                            { id: 2, label: '2. Detalles de TRABJ' },
+                            { id: 3, label: '3. Borrar TRABJ' },
+                            { id: 4, label: '4. Salida Comunic.' },
+                            { id: 5, label: '5. Config.Comunic.' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setJobMenuSelection(item.id);
+                                if (item.id === 1) setScreenState('JOB_SELECT');
+                                else if (item.id === 2) { setScreenState('JOB_DETAILS'); setInputBuffer(jobName.replace(/^\*/, '')); }
+                                else if (item.id === 3) { setScreenState('JOB_DELETE_LIST'); setSelectedJobIdx(0); }
+                                else if (item.id === 4) setLcdMessage('SALIDA COMUNIC:\nENVIANDO DATOS RS-232C');
+                                else if (item.id === 5) setLcdMessage('CONFIG. COMUNIC:\nBAUD: 1200\nPARIDAD: NONE');
+                              }}
+                              className={`px-1.5 py-0.2 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                jobMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {jobMenuSelection === item.id && <span className="text-[10px]">[ENT]</span>}
+                            </div>
+                          ))}
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. ESTADO 'JOB_SELECT': SELECCIONAR TRABJ (DOS LÍNEAS) */}
+                      {screenState === 'JOB_SELECT' && (
+                        <div className="space-y-1.5 font-mono text-xs px-1">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide text-[11px]">
+                            --- SELEC TRABJ ---
+                          </div>
+                          <div className="space-y-1 pt-1">
+                            <div
+                              onClick={() => setJobSelectField(0)}
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border ${
+                                jobSelectField === 0
+                                  ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
+                                  : 'bg-black/5 border-transparent text-neutral-950 font-bold'
+                              }`}
+                            >
+                              <span>Selec TRABJ:</span>
+                              <span className="font-mono">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                            </div>
+                            <div
+                              onClick={() => setJobSelectField(1)}
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border ${
+                                jobSelectField === 1
+                                  ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
+                                  : 'bg-black/5 border-transparent text-neutral-950 font-bold'
+                              }`}
+                            >
+                              <span>Busca Coord TRABJ:</span>
+                              <span className="font-mono">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-sans font-bold">
+                            Presione [F1 LIST] para ver lista de trabajos
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. ESTADO 'JOB_LIST': LISTA VISUAL DE TRABAJOS CON ASTERISCO */}
+                      {screenState === 'JOB_LIST' && (
+                        <div className="space-y-1 font-mono text-xs px-1">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>LISTA TRABJ</span>
+                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
+                          </div>
+                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
+                            {jobsList.map((job, idx) => (
+                              <div
+                                key={job + idx}
+                                onClick={() => setSelectedJobIdx(idx)}
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                  selectedJobIdx === idx
+                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                }`}
+                              >
+                                <span>{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            * No exportado a USB • [ENT] Seleccionar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ESTADO 'JOB_DETAILS': DETALLES DE TRABJ CON ESCAL: 1.00000000 */}
+                      {screenState === 'JOB_DETAILS' && (
+                        <div className="space-y-1 font-mono text-xs px-1">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>DETALLES DE TRABJ</span>
+                            <span className="text-[10px] font-black">F4=[OK]</span>
+                          </div>
+                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1.5 rounded flex justify-between items-center font-bold text-xs">
+                            <span>TRAB:</span>
+                            <span className="font-mono">{inputBuffer}_</span>
+                          </div>
+                          <div className="bg-black/5 px-2 py-1.5 rounded border border-neutral-800/20 text-neutral-950 font-bold flex justify-between items-center">
+                            <span>ESCAL:</span>
+                            <span className="font-mono font-black text-xs">1.00000000</span>
+                          </div>
+                          <div className="text-[10px] text-neutral-700 flex justify-between pt-0.5 font-sans font-bold">
+                            <span>PUNTOS: {points.length}</span>
+                            <span>F4 = [OK]</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. ESTADO 'JOB_DELETE_LIST': SELECCIONAR TRABAJO PARA BORRAR */}
+                      {screenState === 'JOB_DELETE_LIST' && (
+                        <div className="space-y-1 font-mono text-xs px-1">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 text-rose-950">
+                            <span>BORRAR TRABJ</span>
+                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
+                          </div>
+                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
+                            {jobsList.map((job, idx) => (
+                              <div
+                                key={job + idx}
+                                onClick={() => setSelectedJobIdx(idx)}
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                  selectedJobIdx === idx
+                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                }`}
+                              >
+                                <span>{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            Seleccione trabajo y pulse [ENT] para confirmar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. ESTADO 'JOB_DELETE_CONFIRM': AVISO DE CONFIRMACIÓN CON [NO] Y [SI] */}
+                      {screenState === 'JOB_DELETE_CONFIRM' && (
+                        <div className="space-y-2 font-mono text-xs px-1 py-3 text-center">
+                          <div className="font-bold text-xs text-neutral-950 uppercase border-b border-neutral-800/30 pb-1">
+                            CONFIRMAR BORRADO
+                          </div>
+                          <div className="bg-neutral-900 text-[#9CA3AF] p-2.5 rounded font-black text-xs shadow-inner">
+                            {jobDeleteTarget} borrado Confir ?
+                          </div>
+                          <div className="text-[10px] text-neutral-800 font-bold font-sans pt-1">
+                            F3: [NO] • F4: [SI]
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'JOB': EDICIÓN ALFANUMÉRICA (compatibilidad) */}
                       {screenState === 'JOB' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">

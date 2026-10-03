@@ -43,7 +43,7 @@ export interface TopoPoint {
   date?: string;
 }
 
-interface KnownPoint {
+export interface KnownPoint {
   PTO: string;
   N: number;
   E: number;
@@ -91,6 +91,11 @@ type ScreenState =
   | 'JOB_DELETE_LIST'
   | 'JOB_DELETE_CONFIRM'
   | 'JOB'
+  | 'KNOWN_MENU'
+  | 'KNOWN_INPUT'
+  | 'KNOWN_DEL'
+  | 'KNOWN_DEL_CONFIRM'
+  | 'KNOWN_VIEW'
   | 'KNOWN_PTS'
   | 'KNOWN_NEW'
   | 'USB_MENU'
@@ -169,15 +174,24 @@ export default function App() {
     { PTO: 'BS-1', N: 1050.0, E: 1050.0, Z: 100.0, CD: 'PTO_ATRAS', type: 'backsight' }
   ]);
 
-  // 1. MÓDULO DE DATOS CONOCIDOS: Estado separado para bases pre-cargadas
-  const [knownPoints, setKnownPoints] = useState<KnownPoint[]>([
-    { PTO: 'BM-1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'BASE_PRIN' },
-    { PTO: 'BM-2', N: 1050.0, E: 1050.0, Z: 100.0, CD: 'REF_ATRAS' },
-    { PTO: 'DELTA-1', N: 1080.25, E: 960.50, Z: 102.15, CD: 'VERTICE' }
-  ]);
+  // 1. MÓDULO DE DATOS CONOCIDOS: Array independiente según especificación
+  const [knownPoints, setKnownPoints] = useState<TopoPoint[]>([]);
+  const [knownMenuSelection, setKnownMenuSelection] = useState<number>(1);
+  const [selectedKnownIdx, setSelectedKnownIdx] = useState<number>(0);
+  const [knownCoordsInput, setKnownCoordsInput] = useState<{
+    Y: string;
+    X: string;
+    Z: string;
+    PTO: string;
+  }>({
+    Y: '',
+    X: '',
+    Z: '',
+    PTO: '1'
+  });
   const [viewKnownIdx, setViewKnownIdx] = useState<number>(0);
   const [readTargetContext, setReadTargetContext] = useState<'OCC' | 'BS'>('OCC');
-  const [newKnownPoint, setNewKnownPoint] = useState<KnownPoint>({
+  const [newKnownPoint, setNewKnownPoint] = useState<TopoPoint>({
     PTO: 'BM-3',
     N: 1000.0,
     E: 1000.0,
@@ -271,6 +285,11 @@ export default function App() {
       if (activeField === 2) setInputBuffer(target.PTO);
     } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       setInputBuffer(jobName.replace(/^\*/, ''));
+    } else if (screenState === 'KNOWN_INPUT') {
+      if (activeField === 0) setInputBuffer(knownCoordsInput.Y);
+      if (activeField === 1) setInputBuffer(knownCoordsInput.X);
+      if (activeField === 2) setInputBuffer(knownCoordsInput.Z);
+      if (activeField === 3) setInputBuffer(knownCoordsInput.PTO);
     } else if (screenState === 'KNOWN_NEW') {
       if (activeField === 0) setInputBuffer(newKnownPoint.PTO);
       if (activeField === 1) setInputBuffer(String(newKnownPoint.N));
@@ -278,13 +297,14 @@ export default function App() {
       if (activeField === 3) setInputBuffer(String(newKnownPoint.Z));
       if (activeField === 4) setInputBuffer(newKnownPoint.CD ?? '');
     }
-  }, [screenState, activeField, station, backsight, target, jobName, newKnownPoint]);
+  }, [screenState, activeField, station, backsight, target, jobName, knownCoordsInput, newKnownPoint]);
 
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
     if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
     if (screenState === 'OBS' && (activeField === 1 || activeField === 2)) return true; // CD o PTO
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
+    if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
     return false;
   }, [screenState, activeField]);
 
@@ -313,6 +333,11 @@ export default function App() {
           prev.map(j => (j.replace(/^\*/, '') === oldClean ? (j.startsWith('*') ? `*${clean}` : clean) : j))
         );
       }
+    } else if (screenState === 'KNOWN_INPUT') {
+      if (activeField === 0) setKnownCoordsInput(k => ({ ...k, Y: inputBuffer }));
+      if (activeField === 1) setKnownCoordsInput(k => ({ ...k, X: inputBuffer }));
+      if (activeField === 2) setKnownCoordsInput(k => ({ ...k, Z: inputBuffer }));
+      if (activeField === 3) setKnownCoordsInput(k => ({ ...k, PTO: inputBuffer.trim() || '1' }));
     } else if (screenState === 'KNOWN_NEW') {
       if (activeField === 0) setNewKnownPoint(p => ({ ...p, PTO: inputBuffer.trim() || 'BASE' }));
       if (activeField === 1 && !isNaN(val)) setNewKnownPoint(p => ({ ...p, N: val }));
@@ -321,6 +346,42 @@ export default function App() {
       if (activeField === 4) setNewKnownPoint(p => ({ ...p, CD: inputBuffer.trim() }));
     }
   }, [screenState, activeField, inputBuffer]);
+
+  // Guardar punto conocido e iniciar bucle continuo (Y, X, Z limpiados, PTO incrementa en 1)
+  const guardarPuntoConocidoYBucle = useCallback(() => {
+    const finalY = activeField === 0 ? inputBuffer : knownCoordsInput.Y;
+    const finalX = activeField === 1 ? inputBuffer : knownCoordsInput.X;
+    const finalZ = activeField === 2 ? inputBuffer : knownCoordsInput.Z;
+    const finalPTO = activeField === 3 ? (inputBuffer.trim() || '1') : (knownCoordsInput.PTO.trim() || '1');
+
+    const yNum = parseFloat(finalY);
+    const xNum = parseFloat(finalX);
+    const zNum = parseFloat(finalZ);
+
+    const newPt: TopoPoint = {
+      PTO: finalPTO,
+      N: isNaN(yNum) ? 0 : yNum, // Y = Norte
+      E: isNaN(xNum) ? 0 : xNum, // X = Este
+      Z: isNaN(zNum) ? 0 : zNum, // Z = Cota
+      CD: 'BASE',
+      type: 'station',
+      date: new Date().toISOString()
+    };
+
+    setKnownPoints(prev => [...prev, newPt]);
+    const nextPTO = incrementPointId(finalPTO);
+
+    setKnownCoordsInput({
+      Y: '',
+      X: '',
+      Z: '',
+      PTO: nextPTO
+    });
+
+    setActiveField(0);
+    setInputBuffer('');
+    playLaserBeep();
+  }, [activeField, inputBuffer, knownCoordsInput, playLaserBeep]);
 
   // =========================================================================
   // 5. ACCIÓN ESPECIAL: DESCARGA AUTOMÁTICA A USB (DESDE EL FLUJO USB REAL)
@@ -537,7 +598,23 @@ export default function App() {
     // Selección numérica en menú DATO (1. TRABAJO, 2. DATOS CONOCIDOS)
     if (screenState === 'DATO_MENU') {
       if (key === '1') { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
-      else if (key === '2') { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
+      else if (key === '2') { setScreenState('KNOWN_MENU'); setKnownMenuSelection(1); }
+      return;
+    }
+
+    // 2. Submenú DATOS CONOCIDOS: 3 opciones numéricas
+    if (screenState === 'KNOWN_MENU') {
+      if (key === '1') {
+        setScreenState('KNOWN_INPUT');
+        setActiveField(0);
+        setInputBuffer(knownCoordsInput.Y);
+      } else if (key === '2') {
+        setScreenState('KNOWN_DEL');
+        setSelectedKnownIdx(0);
+      } else if (key === '3') {
+        setScreenState('KNOWN_VIEW');
+        setViewKnownIdx(0);
+      }
       return;
     }
 
@@ -569,6 +646,9 @@ export default function App() {
       screenState === 'TILT' ||
       screenState === 'MED' ||
       screenState === 'MAIN' ||
+      screenState === 'KNOWN_DEL' ||
+      screenState === 'KNOWN_DEL_CONFIRM' ||
+      screenState === 'KNOWN_VIEW' ||
       screenState === 'KNOWN_PTS' ||
       screenState === 'SELECT_KNOWN_PT' ||
       screenState === 'CHECK_BS' ||
@@ -589,7 +669,7 @@ export default function App() {
     } else {
       setInputBuffer(prev => prev + key);
     }
-  }, [screenState, inputBuffer, jobName, playBeep]);
+  }, [screenState, inputBuffer, jobName, knownCoordsInput, playBeep]);
 
   // Botón físico central AZUL: ENTER
   const handleEnterPress = useCallback(() => {
@@ -639,9 +719,62 @@ export default function App() {
         setScreenState('JOB_MENU');
         setJobMenuSelection(1);
       } else if (menuSelection === 2) {
-        setScreenState('KNOWN_PTS');
+        setScreenState('KNOWN_MENU');
+        setKnownMenuSelection(1);
+      }
+      return;
+    }
+
+    // 2. Submenú DATOS CONOCIDOS
+    if (screenState === 'KNOWN_MENU') {
+      if (knownMenuSelection === 1) {
+        setScreenState('KNOWN_INPUT');
+        setActiveField(0);
+        setInputBuffer(knownCoordsInput.Y);
+      } else if (knownMenuSelection === 2) {
+        setScreenState('KNOWN_DEL');
+        setSelectedKnownIdx(0);
+      } else if (knownMenuSelection === 3) {
+        setScreenState('KNOWN_VIEW');
         setViewKnownIdx(0);
       }
+      return;
+    }
+
+    // 3. Entrada Coords (Y -> X -> Z -> PTO -> Bucle continuo)
+    if (screenState === 'KNOWN_INPUT') {
+      if (activeField < 3) {
+        setActiveField(f => f + 1);
+      } else {
+        guardarPuntoConocidoYBucle();
+      }
+      return;
+    }
+
+    // Borrar Coords
+    if (screenState === 'KNOWN_DEL') {
+      if (knownPoints.length > 0) {
+        setScreenState('KNOWN_DEL_CONFIRM');
+      }
+      return;
+    }
+
+    // Confirmación de Borrado Coords
+    if (screenState === 'KNOWN_DEL_CONFIRM') {
+      const targetPto = knownPoints[selectedKnownIdx]?.PTO;
+      setKnownPoints(prev => prev.filter((_, idx) => idx !== selectedKnownIdx));
+      setSelectedKnownIdx(0);
+      playLaserBeep();
+      setLcdMessage(`PTO ${targetPto}\nBORRADO`);
+      setTimeout(() => {
+        setScreenState('KNOWN_DEL');
+      }, 1000);
+      return;
+    }
+
+    // Ver Coords
+    if (screenState === 'KNOWN_VIEW') {
+      setScreenState('KNOWN_MENU');
       return;
     }
 
@@ -868,6 +1001,10 @@ export default function App() {
     jobDeleteTarget,
     newKnownPoint,
     knownPoints,
+    knownMenuSelection,
+    knownCoordsInput,
+    selectedKnownIdx,
+    guardarPuntoConocidoYBucle,
     viewKnownIdx,
     readTargetContext,
     usbMenuSelection,
@@ -890,6 +1027,16 @@ export default function App() {
       setScreenState('ROOT');
     } else if (screenState === 'DATO_MENU') {
       setScreenState('ROOT');
+    } else if (screenState === 'KNOWN_MENU') {
+      setScreenState('DATO_MENU');
+    } else if (screenState === 'KNOWN_INPUT') {
+      setScreenState('KNOWN_MENU');
+    } else if (screenState === 'KNOWN_DEL') {
+      setScreenState('KNOWN_MENU');
+    } else if (screenState === 'KNOWN_DEL_CONFIRM') {
+      setScreenState('KNOWN_DEL');
+    } else if (screenState === 'KNOWN_VIEW') {
+      setScreenState('KNOWN_MENU');
     } else if (screenState === 'JOB_MENU') {
       setScreenState('DATO_MENU');
     } else if (screenState === 'JOB_SELECT') {
@@ -980,13 +1127,35 @@ export default function App() {
       return;
     }
 
-    if (screenState === 'KNOWN_PTS' || screenState === 'SELECT_KNOWN_PT') {
+    if (screenState === 'KNOWN_MENU') {
+      if (dir === 'UP') setKnownMenuSelection(prev => (prev > 1 ? prev - 1 : 3));
+      if (dir === 'DOWN') setKnownMenuSelection(prev => (prev < 3 ? prev + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'KNOWN_DEL') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setSelectedKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setSelectedKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      }
+      return;
+    }
+
+    if (screenState === 'KNOWN_VIEW' || screenState === 'KNOWN_PTS' || screenState === 'SELECT_KNOWN_PT') {
       if (dir === 'UP' || dir === 'LEFT') {
         setViewKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
       }
       if (dir === 'DOWN' || dir === 'RIGHT') {
         setViewKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
       }
+      return;
+    }
+
+    if (screenState === 'KNOWN_INPUT') {
+      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
+      if (dir === 'DOWN') setActiveField(f => (f < 3 ? f + 1 : 0));
       return;
     }
 
@@ -1232,6 +1401,58 @@ export default function App() {
       return;
     }
 
+    // Submenú DATOS CONOCIDOS
+    if (screenState === 'KNOWN_MENU') {
+      if (fNum === 4) handleEnterPress();
+      return;
+    }
+
+    // 3. Interfaz de Entrada Coords (F4=[OK] dispara bucle y guarda)
+    if (screenState === 'KNOWN_INPUT') {
+      if (fNum === 3) {
+        setIsAlphaKeyboardOpen(k => !k);
+      } else if (fNum === 4) {
+        guardarPuntoConocidoYBucle();
+      }
+      return;
+    }
+
+    // Borrar Coords
+    if (screenState === 'KNOWN_DEL') {
+      if (fNum === 1) {
+        setSelectedKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      } else if (fNum === 2) {
+        setSelectedKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      } else if (fNum === 3) {
+        setScreenState('KNOWN_MENU');
+      } else if (fNum === 4) {
+        if (knownPoints.length > 0) setScreenState('KNOWN_DEL_CONFIRM');
+      }
+      return;
+    }
+
+    // Confirmación de Borrado Coords
+    if (screenState === 'KNOWN_DEL_CONFIRM') {
+      if (fNum === 3) {
+        setScreenState('KNOWN_DEL');
+      } else if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // Ver Coords
+    if (screenState === 'KNOWN_VIEW') {
+      if (fNum === 1) {
+        setViewKnownIdx(i => (i > 0 ? i - 1 : Math.max(0, knownPoints.length - 1)));
+      } else if (fNum === 2) {
+        setViewKnownIdx(i => (i < knownPoints.length - 1 ? i + 1 : 0));
+      } else if (fNum === 4) {
+        setScreenState('KNOWN_MENU');
+      }
+      return;
+    }
+
     // Visor de Datos Conocidos (KNOWN_PTS)
     if (screenState === 'KNOWN_PTS') {
       if (fNum === 1) {
@@ -1356,6 +1577,7 @@ export default function App() {
     target.HR,
     jobsList.length,
     jobDeleteTarget,
+    guardarPuntoConocidoYBucle,
     playBeep,
     playLaserBeep
   ]);
@@ -1437,9 +1659,18 @@ export default function App() {
       case 'COORD_MENU':
       case 'DATO_MENU':
       case 'JOB_MENU':
+      case 'KNOWN_MENU':
       case 'USB_MENU':
       case 'USB_TTYPE':
         return ['', '', '', 'ENT'];
+      case 'KNOWN_INPUT':
+        return ['', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'OK'];
+      case 'KNOWN_DEL':
+        return ['ANT', 'SIG', 'ESC', 'BORR'];
+      case 'KNOWN_DEL_CONFIRM':
+        return ['', '', 'NO', 'SI'];
+      case 'KNOWN_VIEW':
+        return ['ANT', 'SIG', '', 'ESC'];
       case 'JOB_SELECT':
         return ['LIST', '', '', 'OK'];
       case 'JOB_LIST':
@@ -1784,7 +2015,7 @@ export default function App() {
                               onClick={() => {
                                 setMenuSelection(item.id);
                                 if (item.id === 1) { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
-                                else if (item.id === 2) { setScreenState('KNOWN_PTS'); setViewKnownIdx(0); }
+                                else if (item.id === 2) { setScreenState('KNOWN_MENU'); setKnownMenuSelection(1); }
                               }}
                               className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
                                 menuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
@@ -1993,18 +2224,148 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 1. ESTADO 'KNOWN_PTS': VISOR ON-BOARD DE DATOS CONOCIDOS (BASES) */}
-                      {screenState === 'KNOWN_PTS' && (
+                      {/* SUBMENÚ DATOS CONOCIDOS */}
+                      {screenState === 'KNOWN_MENU' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>DATOS CONOCIDOS</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{knownMenuSelection}/3]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. Entrada Coords' },
+                            { id: 2, label: '2. Borrar' },
+                            { id: 3, label: '3. Ver' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setKnownMenuSelection(item.id);
+                                if (item.id === 1) {
+                                  setScreenState('KNOWN_INPUT');
+                                  setActiveField(0);
+                                  setInputBuffer(knownCoordsInput.Y);
+                                } else if (item.id === 2) {
+                                  setScreenState('KNOWN_DEL');
+                                  setSelectedKnownIdx(0);
+                                } else if (item.id === 3) {
+                                  setScreenState('KNOWN_VIEW');
+                                  setViewKnownIdx(0);
+                                }
+                              }}
+                              className={`px-1.5 py-1 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                knownMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {knownMenuSelection === item.id && <span>[ENT]</span>}
+                            </div>
+                          ))}
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
+                            Seleccione opción y pulse [ENT]
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. INTERFAZ DE ENTRADA COORDS (FORMULARIO ESTRICTO Y, X, Z, PTO) */}
+                      {screenState === 'KNOWN_INPUT' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>DATOS CONOCIDOS</span>
+                            <span>ENTRADA COORDS</span>
+                            <span className="text-[10px] font-black">F4=[OK]</span>
+                          </div>
+                          {[
+                            { label: 'Y', val: knownCoordsInput.Y },
+                            { label: 'X', val: knownCoordsInput.X },
+                            { label: 'Z', val: knownCoordsInput.Z },
+                            { label: 'PTO', val: knownCoordsInput.PTO }
+                          ].map((item, idx) => {
+                            const isCur = activeField === idx;
+                            return (
+                              <div
+                                key={item.label}
+                                onClick={() => {
+                                  commitCurrentField();
+                                  setActiveField(idx);
+                                }}
+                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
+                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}:</span>
+                                <span>{isCur ? `${inputBuffer}_` : (item.val !== '' ? item.val : '---')}</span>
+                              </div>
+                            );
+                          })}
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            [ENT]: Sig. Campo • F4=[OK]: Guardar y Loop
+                          </div>
+                        </div>
+                      )}
+
+                      {/* BORRAR PUNTOS CONOCIDOS */}
+                      {screenState === 'KNOWN_DEL' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>BORRAR COORD.</span>
+                            <span className="text-[10px] font-bold">
+                              {knownPoints.length > 0 ? `[${selectedKnownIdx + 1}/${knownPoints.length}]` : '[0/0]'}
+                            </span>
+                          </div>
+                          {knownPoints.length === 0 ? (
+                            <div className="text-center py-4 text-neutral-800 font-sans">
+                              Sin puntos cargados.<br />Pulse [ESC] para volver.
+                            </div>
+                          ) : (
+                            <div className="space-y-0.5 bg-black/5 p-1 rounded">
+                              <div className="flex justify-between font-bold">
+                                <span>PTO: {knownPoints[selectedKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                                  {knownPoints[selectedKnownIdx]?.CD || 'BASE'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>Y: {knownPoints[selectedKnownIdx]?.N.toFixed(3)}</span>
+                                <span>X: {knownPoints[selectedKnownIdx]?.E.toFixed(3)}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>Z: {knownPoints[selectedKnownIdx]?.Z.toFixed(3)}</span>
+                                <span className="text-[10px] font-bold text-red-800 font-sans">F4=[BORR]</span>
+                              </div>
+                            </div>
+                          )}
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ / ▼: Seleccionar • F4 o [ENT]: Borrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CONFIRMAR BORRADO DE PUNTO CONOCIDO */}
+                      {screenState === 'KNOWN_DEL_CONFIRM' && (
+                        <div className="flex flex-col items-center justify-center h-full py-4 space-y-2 font-mono text-center">
+                          <div className="text-xs font-bold bg-black/10 px-2 py-1 rounded">
+                            {knownPoints[selectedKnownIdx]?.PTO || 'PUNTO'}
+                          </div>
+                          <div className="text-sm font-black text-neutral-900">
+                            borrado Confir ?
+                          </div>
+                          <div className="text-[10px] text-neutral-700 font-sans pt-2">
+                            F3=[NO] Cancelar • F4=[SI] Confirmar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* VER PUNTOS CONOCIDOS */}
+                      {screenState === 'KNOWN_VIEW' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>VER COORDS</span>
                             <span className="text-[10px] font-bold">
                               {knownPoints.length > 0 ? `[${viewKnownIdx + 1}/${knownPoints.length}]` : '[0/0]'}
                             </span>
                           </div>
                           {knownPoints.length === 0 ? (
                             <div className="text-center py-4 text-neutral-800 font-sans">
-                              Sin bases cargadas.<br />Pulse [F1 NUEV] para ingresar.
+                              Sin puntos cargados.<br />Pulse [ESC] para volver.
                             </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
@@ -2015,22 +2376,53 @@ export default function App() {
                                 </span>
                               </div>
                               <div className="flex justify-between text-[11px]">
-                                <span>N: {knownPoints[viewKnownIdx]?.N.toFixed(3)}</span>
-                                <span>E: {knownPoints[viewKnownIdx]?.E.toFixed(3)}</span>
+                                <span>Y: {knownPoints[viewKnownIdx]?.N.toFixed(3)}</span>
+                                <span>X: {knownPoints[viewKnownIdx]?.E.toFixed(3)}</span>
                               </div>
                               <div className="flex justify-between text-[11px]">
                                 <span>Z: {knownPoints[viewKnownIdx]?.Z.toFixed(3)}</span>
-                                <span className="text-[10px] text-neutral-700 font-sans font-bold">F1=NUEV</span>
                               </div>
                             </div>
                           )}
                           <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
-                            F1: Nueva Base • ▲ / ▼: Navegar
+                            ▲ / ▼: Navegar • ESC: Salir
                           </div>
                         </div>
                       )}
 
-                      {/* 1. ESTADO 'KNOWN_NEW': FORMULARIO PARA INGRESAR NUEVA BASE */}
+                      {/* COMPATIBILIDAD CON KNOWN_PTS Y KNOWN_NEW */}
+                      {screenState === 'KNOWN_PTS' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
+                            <span>DATOS CONOCIDOS</span>
+                            <span className="text-[10px] font-bold">
+                              {knownPoints.length > 0 ? `[${viewKnownIdx + 1}/${knownPoints.length}]` : '[0/0]'}
+                            </span>
+                          </div>
+                          {knownPoints.length === 0 ? (
+                            <div className="text-center py-4 text-neutral-800 font-sans">
+                              Sin bases cargadas.<br />Pulse [ESC] para volver.
+                            </div>
+                          ) : (
+                            <div className="space-y-0.5 bg-black/5 p-1 rounded">
+                              <div className="flex justify-between font-bold">
+                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                                  {knownPoints[viewKnownIdx]?.CD || 'BASE'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>Y: {knownPoints[viewKnownIdx]?.N.toFixed(3)}</span>
+                                <span>X: {knownPoints[viewKnownIdx]?.E.toFixed(3)}</span>
+                              </div>
+                              <div className="flex justify-between text-[11px]">
+                                <span>Z: {knownPoints[viewKnownIdx]?.Z.toFixed(3)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {screenState === 'KNOWN_NEW' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">

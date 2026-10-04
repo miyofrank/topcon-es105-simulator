@@ -2023,14 +2023,14 @@ export default function App() {
               {/* ========================================================== */}
               {/* LADO IZQUIERDO DEL PANEL (md:col-span-7)                   */}
               {/* ========================================================== */}
-              <div className="md:col-span-7 flex flex-col gap-3">
+              <div className="md:col-span-7 flex flex-col gap-3 min-w-0">
                 
                 {/* MARCO RECESIVO DE LA PANTALLA LCD */}
-                <div className="bg-neutral-950 p-2.5 rounded-2xl border-2 border-neutral-800 shadow-inner flex flex-col">
+                <div className="bg-neutral-950 p-2.5 rounded-2xl border-2 border-neutral-800 shadow-inner flex flex-col min-w-0">
               
               {/* PANTALLA LCD RETROILUMINADA (Fondo exacto #9CA3AF) */}
               <div
-                className={`relative w-full h-[230px] rounded-lg p-2.5 font-mono transition-colors duration-300 shadow-inner border-2 border-neutral-700 flex flex-col justify-between overflow-hidden ${
+                className={`relative w-full h-[230px] rounded-lg p-2.5 font-mono transition-colors duration-300 shadow-inner border-2 border-neutral-700 flex flex-col justify-between overflow-hidden min-w-0 ${
                   isBacklightOn ? 'bg-[#9CA3AF] text-neutral-950' : 'bg-[#7a8390] text-neutral-900'
                 }`}
                 style={{
@@ -2086,11 +2086,11 @@ export default function App() {
                 </div>
 
                 {/* 2. ÁREA CENTRAL DE PANTALLA LCD SEGÚN MÁQUINA DE ESTADOS */}
-                <div className="flex-1 py-1 flex flex-col justify-center text-xs leading-relaxed">
+                <div className="flex-1 py-1 flex flex-col justify-center text-xs leading-relaxed min-w-0 overflow-hidden">
                   
                   {/* ALERTA TEMPORAL EN PANTALLA LCD */}
                   {lcdMessage ? (
-                    <div className="bg-neutral-950 text-[#9CA3AF] p-2 rounded shadow border border-neutral-800 text-center font-bold whitespace-pre-line text-xs">
+                    <div className="bg-neutral-950 text-[#9CA3AF] p-2 rounded shadow border border-neutral-800 text-center font-bold whitespace-pre-line text-xs break-words overflow-hidden max-w-full">
                       {lcdMessage}
                     </div>
                   ) : isMeasuring ? (
@@ -2145,8 +2145,9 @@ export default function App() {
                           <div className="text-neutral-900 font-bold text-xs">
                             1.03_02
                           </div>
-                          <div className="flex justify-between items-center font-bold text-xs pt-1 border-t border-neutral-800/30">
-                            <span>Tra. {jobName}</span>
+                          <div className="flex justify-between items-center font-bold text-xs pt-1 border-t border-neutral-800/30 min-w-0">
+                            <span className="shrink-0">Tra.</span>
+                            <span className="truncate max-w-[75%] overflow-hidden text-right font-mono">{jobName}</span>
                           </div>
                         </div>
                       )}
@@ -2282,25 +2283,25 @@ export default function App() {
                           <div className="space-y-1 pt-1">
                             <div
                               onClick={() => setJobSelectField(0)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border ${
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 ${
                                 jobSelectField === 0
                                   ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
                                   : 'bg-black/5 border-transparent text-neutral-950 font-bold'
                               }`}
                             >
-                              <span>Selec TRABJ:</span>
-                              <span className="font-mono">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                              <span className="shrink-0">Selec TRABJ:</span>
+                              <span className="font-mono truncate max-w-[60%] overflow-hidden text-right">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
                             </div>
                             <div
                               onClick={() => setJobSelectField(1)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border ${
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 ${
                                 jobSelectField === 1
                                   ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
                                   : 'bg-black/5 border-transparent text-neutral-950 font-bold'
                               }`}
                             >
-                              <span>Busca Coord TRABJ:</span>
-                              <span className="font-mono">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                              <span className="shrink-0">Busca Coord TRABJ:</span>
+                              <span className="font-mono truncate max-w-[50%] overflow-hidden text-right">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
                             </div>
                           </div>
                           <div className="text-[10px] text-neutral-800 text-center pt-1 font-sans font-bold">
@@ -2321,14 +2322,14 @@ export default function App() {
                               <div
                                 key={job + idx}
                                 onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
                                   selectedJobIdx === idx
                                     ? 'bg-neutral-900 text-[#9CA3AF] font-black'
                                     : 'hover:bg-black/10 text-neutral-900 font-semibold'
                                 }`}
                               >
-                                <span>{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
                               </div>
                             ))}
                           </div>
@@ -2345,9 +2346,9 @@ export default function App() {
                             <span>DETALLES DE TRABJ</span>
                             <span className="text-[10px] font-black">F4=[OK]</span>
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1.5 rounded flex justify-between items-center font-bold text-xs">
-                            <span>TRAB:</span>
-                            <span className="font-mono">{inputBuffer}_</span>
+                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1.5 rounded flex justify-between items-center font-bold text-xs min-w-0">
+                            <span className="shrink-0">TRAB:</span>
+                            <span className="font-mono truncate max-w-[65%] overflow-hidden text-right">{inputBuffer}_</span>
                           </div>
                           <div className="bg-black/5 px-2 py-1.5 rounded border border-neutral-800/20 text-neutral-950 font-bold flex justify-between items-center">
                             <span>ESCAL:</span>
@@ -2372,14 +2373,14 @@ export default function App() {
                               <div
                                 key={job + idx}
                                 onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
                                   selectedJobIdx === idx
                                     ? 'bg-neutral-900 text-[#9CA3AF] font-black'
                                     : 'hover:bg-black/10 text-neutral-900 font-semibold'
                                 }`}
                               >
-                                <span>{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
                               </div>
                             ))}
                           </div>
@@ -2395,7 +2396,7 @@ export default function App() {
                           <div className="font-bold text-xs text-neutral-950 uppercase border-b border-neutral-800/30 pb-1">
                             CONFIRMAR BORRADO
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] p-2.5 rounded font-black text-xs shadow-inner">
+                          <div className="bg-neutral-900 text-[#9CA3AF] p-2.5 rounded font-black text-xs shadow-inner truncate max-w-full overflow-hidden">
                             {jobDeleteTarget} borrado Confir ?
                           </div>
                           <div className="text-[10px] text-neutral-800 font-bold font-sans pt-1">
@@ -2411,18 +2412,18 @@ export default function App() {
                             <span>SELECCIÓN TRABAJO</span>
                             <span className="text-[10px] font-black">F4=[ENT]</span>
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1 rounded flex justify-between items-center font-bold">
-                            <span>TRAB:</span>
-                            <span>{inputBuffer}_</span>
+                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1 rounded flex justify-between items-center font-bold min-w-0">
+                            <span className="shrink-0">TRAB:</span>
+                            <span className="font-mono truncate max-w-[65%] overflow-hidden text-right">{inputBuffer}_</span>
                           </div>
-                          <div className="text-[11px] text-neutral-800 space-y-0.5 pt-0.5">
-                            <div className="flex justify-between">
-                              <span>PUNTOS LEVANTADOS:</span>
+                          <div className="text-[11px] text-neutral-800 space-y-0.5 pt-0.5 min-w-0">
+                            <div className="flex justify-between items-center">
+                              <span className="shrink-0">PUNTOS LEVANTADOS:</span>
                               <span className="font-bold">{points.length}</span>
                             </div>
-                            <div className="flex justify-between">
-                              <span>DESTINO USB:</span>
-                              <span className="font-bold truncate max-w-[130px]">{inputBuffer || 'TRAB'}.csv</span>
+                            <div className="flex justify-between items-center min-w-0">
+                              <span className="shrink-0">DESTINO USB:</span>
+                              <span className="font-bold truncate max-w-[55%] overflow-hidden text-right">{inputBuffer || 'TRAB'}.csv</span>
                             </div>
                           </div>
                         </div>
@@ -2491,12 +2492,14 @@ export default function App() {
                                   commitCurrentField();
                                   setActiveField(idx);
                                 }}
-                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
+                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
                                   isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
                               >
-                                <span>{item.label}:</span>
-                                <span>{isCur ? `${inputBuffer}_` : (item.val !== '' ? item.val : '---')}</span>
+                                <span className="shrink-0">{item.label}:</span>
+                                <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
+                                  {isCur ? `${inputBuffer}_` : (item.val !== '' ? item.val : '---')}
+                                </span>
                               </div>
                             );
                           })}
@@ -2521,9 +2524,9 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
-                              <div className="flex justify-between font-bold">
-                                <span>PTO: {knownPoints[selectedKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                              <div className="flex justify-between items-center font-bold min-w-0">
+                                <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[selectedKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[selectedKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -2546,7 +2549,7 @@ export default function App() {
                       {/* CONFIRMAR BORRADO DE PUNTO CONOCIDO */}
                       {screenState === 'KNOWN_DEL_CONFIRM' && (
                         <div className="flex flex-col items-center justify-center h-full py-4 space-y-2 font-mono text-center">
-                          <div className="text-xs font-bold bg-black/10 px-2 py-1 rounded">
+                          <div className="text-xs font-bold bg-black/10 px-2 py-1 rounded truncate max-w-[80%] overflow-hidden">
                             {knownPoints[selectedKnownIdx]?.PTO || 'PUNTO'}
                           </div>
                           <div className="text-sm font-black text-neutral-900">
@@ -2573,9 +2576,9 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
-                              <div className="flex justify-between font-bold">
-                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                              <div className="flex justify-between items-center font-bold min-w-0">
+                                <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -2609,9 +2612,9 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
-                              <div className="flex justify-between font-bold">
-                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                              <div className="flex justify-between items-center font-bold min-w-0">
+                                <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -2645,12 +2648,14 @@ export default function App() {
                               <div
                                 key={item.label}
                                 onClick={() => setActiveField(idx)}
-                                className={`flex justify-between items-center px-1.5 py-0.2 rounded cursor-pointer ${
+                                className={`flex justify-between items-center px-1.5 py-0.2 rounded cursor-pointer min-w-0 ${
                                   isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
                               >
-                                <span>{item.label}:</span>
-                                <span>{isCur ? `${inputBuffer}_` : item.val}</span>
+                                <span className="shrink-0">{item.label}:</span>
+                                <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
+                                  {isCur ? `${inputBuffer}_` : item.val}
+                                </span>
                               </div>
                             );
                           })}
@@ -2670,9 +2675,9 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
-                              <div className="flex justify-between font-bold">
-                                <span>PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded">
+                              <div className="flex justify-between items-center font-bold min-w-0">
+                                <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
+                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -2762,12 +2767,14 @@ export default function App() {
                                     commitCurrentField();
                                     setActiveField(realIdx);
                                   }}
-                                  className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
+                                  className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
                                     isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                   }`}
                                 >
-                                  <span>{item.label}:</span>
-                                  <span>{isCur ? `${inputBuffer}_` : item.val}</span>
+                                  <span className="shrink-0">{item.label}:</span>
+                                  <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
+                                    {isCur ? `${inputBuffer}_` : item.val}
+                                  </span>
                                 </div>
                               );
                             })}
@@ -2799,12 +2806,12 @@ export default function App() {
                                   commitCurrentField();
                                   setActiveField(idx);
                                 }}
-                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer ${
+                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
                                   isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
                               >
-                                <span>{item.label}:</span>
-                                <span>
+                                <span className="shrink-0">{item.label}:</span>
+                                <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
                                   {isCur
                                     ? `${inputBuffer}_`
                                     : idx === 3
@@ -2823,9 +2830,9 @@ export default function App() {
                       {/* 4. ESTADO 'CHECK_BS': COMPROBACIÓN DE ORIENTACIÓN (AZ, HA-D, Acim) */}
                       {screenState === 'CHECK_BS' && (
                         <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>COMPROB. ORIEN.</span>
-                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 min-w-0 items-center">
+                            <span className="shrink-0">COMPROB. ORIEN.</span>
+                            <span className="text-[10px] font-bold truncate max-w-[45%] overflow-hidden text-right">PTO: {backsight.PTO || 'BS-1'}</span>
                           </div>
                           <div className="space-y-0.5 bg-black/5 p-1 rounded">
                             <div className="text-[11px] font-bold text-neutral-900 border-b border-neutral-800/20 pb-0.5">
@@ -2856,9 +2863,9 @@ export default function App() {
                       {/* 5. ESTADO 'CHECK_BS_DIST': Ref.DisH ver (dDH = Obs H - Calc DH) */}
                       {screenState === 'CHECK_BS_DIST' && (
                         <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>Ref.DisH ver</span>
-                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 min-w-0 items-center">
+                            <span className="shrink-0">Ref.DisH ver</span>
+                            <span className="text-[10px] font-bold truncate max-w-[45%] overflow-hidden text-right">PTO: {backsight.PTO || 'BS-1'}</span>
                           </div>
                           <div className="space-y-1 bg-black/5 p-1.5 rounded">
                             <div className="flex justify-between items-center text-xs">
@@ -2939,14 +2946,14 @@ export default function App() {
                               <div
                                 key={job + idx}
                                 onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs ${
+                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
                                   selectedJobIdx === idx
                                     ? 'bg-neutral-900 text-[#9CA3AF] font-black'
                                     : 'hover:bg-black/10 text-neutral-900 font-semibold'
                                 }`}
                               >
-                                <span>{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono">[ENT]</span>}
+                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
                               </div>
                             ))}
                           </div>
@@ -3048,23 +3055,23 @@ export default function App() {
                             {activeField === 0 ? (
                               <div
                                 onClick={() => setActiveField(0)}
-                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner"
+                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner min-w-0"
                               >
-                                <span>PTO:</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono font-black">{inputBuffer}_</span>
-                                  <span className="text-[9px] text-neutral-400 font-normal">▼ Cd</span>
+                                <span className="shrink-0">PTO:</span>
+                                <div className="flex items-center gap-2 min-w-0 max-w-[65%] justify-end">
+                                  <span className="font-mono font-black truncate max-w-full overflow-hidden">{inputBuffer}_</span>
+                                  <span className="text-[9px] text-neutral-400 font-normal shrink-0">▼ Cd</span>
                                 </div>
                               </div>
                             ) : (
                               <div
                                 onClick={() => setActiveField(1)}
-                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner"
+                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner min-w-0"
                               >
-                                <span>Cd :</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono font-black">{inputBuffer}_</span>
-                                  <span className="text-[9px] text-neutral-400 font-normal">▲ PTO</span>
+                                <span className="shrink-0">Cd :</span>
+                                <div className="flex items-center gap-2 min-w-0 max-w-[65%] justify-end">
+                                  <span className="font-mono font-black truncate max-w-full overflow-hidden">{inputBuffer}_</span>
+                                  <span className="text-[9px] text-neutral-400 font-normal shrink-0">▲ PTO</span>
                                 </div>
                               </div>
                             )}

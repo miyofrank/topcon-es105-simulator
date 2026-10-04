@@ -3436,32 +3436,39 @@ export default function App() {
             />
           </div>
 
-          {/* Presets de puntería rápida */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">
-              Posiciones Rápidas de Prisma:
-            </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { name: 'Pto Atrás (BS)', hd: 0.0, v: 90.0, sd: 70.71 },
-                { name: 'Vértice 1', hd: 28.5, v: 88.75, sd: 54.3 },
-                { name: 'Esquina Muro', hd: 75.2, v: 89.9, sd: 35.8 },
-                { name: 'Límite Parcela', hd: 142.1, v: 91.2, sd: 68.4 }
-              ].map(preset => (
-                <button
-                  key={preset.name}
-                  onClick={() => {
-                    setEnvHD(preset.hd);
-                    setEnvV(preset.v);
-                    setEnvSD(preset.sd);
-                    playBeep(1250, 0.03);
-                  }}
-                  className="px-2.5 py-1.5 bg-neutral-950 hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-lg text-[11px] border border-neutral-800 flex items-center justify-between transition-colors cursor-pointer"
-                >
-                  <span>{preset.name}</span>
-                  <span className="font-mono text-[9px] text-amber-400">{preset.sd}m</span>
-                </button>
-              ))}
+          {/* 4. Altura del Prisma (HR) */}
+          <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+            <div className="flex justify-between items-center text-xs">
+              <label className="font-semibold text-neutral-300">Altura del Prisma (HR)</label>
+              <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                {target.HR.toFixed(3)} m
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step="0.001"
+                min="0"
+                max="5"
+                value={target.HR}
+                onChange={e => setTarget(prev => ({ ...prev, HR: parseFloat(e.target.value) || 0 }))}
+                className="w-full bg-neutral-900 border border-neutral-700 focus:border-emerald-500 rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+              />
+              <span className="text-[11px] font-mono text-neutral-500">m</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              step="0.01"
+              value={target.HR}
+              onChange={e => setTarget(prev => ({ ...prev, HR: parseFloat(e.target.value) || 0 }))}
+              className="w-full accent-emerald-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-neutral-500">
+              <span>0m (Suelo)</span>
+              <span className="text-emerald-400 font-bold">1.5m (Estándar)</span>
+              <span>5m (Max)</span>
             </div>
           </div>
 
@@ -3476,7 +3483,7 @@ export default function App() {
               <span className="font-mono text-emerald-400 font-bold">{points.length} puntos</span>
             </div>
             <div className="text-[10px] text-neutral-500 italic pt-1 border-t border-neutral-800/80">
-              * Para exportar a USB: En ROOT pulsa [F2 USB] &gt; 1. Guardar Datos &gt; Selecciona Trabajo &gt; 4. SSS(Coord).
+              * Para exportar a USB: En MED (Pág 2 con [FUNC]) pulsa [F2 USB] &gt; 1. Guardar Datos &gt; Selecciona Trabajo &gt; 4. SSS(Coord).
             </div>
           </div>
         </aside>

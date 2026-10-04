@@ -18,6 +18,7 @@ interface Station {
   N: number;
   E: number;
   Z: number;
+  PTO?: string;
   HI: number;
 }
 
@@ -146,6 +147,7 @@ export default function App() {
     N: 1000.0,
     E: 1000.0,
     Z: 100.0,
+    PTO: 'EST-1',
     HI: 1.55,
   });
 
@@ -316,6 +318,7 @@ export default function App() {
         station.N,
         station.E,
         station.Z,
+        station.PTO || 'EST-1',
         station.HI,
         stationAtm.CD,
         stationAtm.operador,
@@ -355,7 +358,7 @@ export default function App() {
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
     if (screenState === 'ERXYZ' && activeField === 3) return true; // PTO de E.RXYZ
-    if (screenState === 'OCC_ORIEN' && (activeField >= 4 && activeField <= 7)) return true; // Cd, Operador, Clima, Viento
+    if (screenState === 'OCC_ORIEN' && (activeField === 3 || (activeField >= 5 && activeField <= 8))) return true; // PTO, Cd, Operador, Clima, Viento
     return false;
   }, [screenState, activeField]);
 
@@ -366,14 +369,15 @@ export default function App() {
       if (activeField === 0 && !isNaN(val)) setStation(s => ({ ...s, N: val }));
       else if (activeField === 1 && !isNaN(val)) setStation(s => ({ ...s, E: val }));
       else if (activeField === 2 && !isNaN(val)) setStation(s => ({ ...s, Z: val }));
-      else if (activeField === 3 && !isNaN(val)) setStation(s => ({ ...s, HI: val }));
-      else if (activeField === 4) setStationAtm(a => ({ ...a, CD: inputBuffer.trim() || 'BASE' }));
-      else if (activeField === 5) setStationAtm(a => ({ ...a, operador: inputBuffer.trim() || 'OPERADOR' }));
-      else if (activeField === 6) setStationAtm(a => ({ ...a, clima: inputBuffer.trim() || 'DESPEJADO' }));
-      else if (activeField === 7) setStationAtm(a => ({ ...a, viento: inputBuffer.trim() || 'Calma' }));
-      else if (activeField === 8) setStationAtm(a => ({ ...a, temp: inputBuffer.trim() || '20°C' }));
-      else if (activeField === 9) setStationAtm(a => ({ ...a, pres: inputBuffer.trim() || '760mmHg' }));
-      else if (activeField === 10) setStationAtm(a => ({ ...a, ppm: inputBuffer.trim() || '11' }));
+      else if (activeField === 3) setStation(s => ({ ...s, PTO: inputBuffer.trim() || 'EST-1' }));
+      else if (activeField === 4 && !isNaN(val)) setStation(s => ({ ...s, HI: val }));
+      else if (activeField === 5) setStationAtm(a => ({ ...a, CD: inputBuffer.trim() || 'BASE' }));
+      else if (activeField === 6) setStationAtm(a => ({ ...a, operador: inputBuffer.trim() || 'OPERADOR' }));
+      else if (activeField === 7) setStationAtm(a => ({ ...a, clima: inputBuffer.trim() || 'DESPEJADO' }));
+      else if (activeField === 8) setStationAtm(a => ({ ...a, viento: inputBuffer.trim() || 'Calma' }));
+      else if (activeField === 9) setStationAtm(a => ({ ...a, temp: inputBuffer.trim() || '20°C' }));
+      else if (activeField === 10) setStationAtm(a => ({ ...a, pres: inputBuffer.trim() || '760mmHg' }));
+      else if (activeField === 11) setStationAtm(a => ({ ...a, ppm: inputBuffer.trim() || '11' }));
     } else if (screenState === 'ERXYZ') {
       if (activeField === 0 && !isNaN(val)) setBacksight(b => ({ ...b, N: val }));
       else if (activeField === 1 && !isNaN(val)) setBacksight(b => ({ ...b, E: val }));
@@ -558,7 +562,7 @@ export default function App() {
     setPoints(prev => {
       const sinBase = prev.filter(p => p.type !== 'station' && p.type !== 'backsight');
       return [
-        { PTO: 'EST-1', N: station.N, E: station.E, Z: station.Z, CD: stationAtm.CD, type: 'station' },
+        { PTO: station.PTO || 'EST-1', N: station.N, E: station.E, Z: station.Z, CD: stationAtm.CD, type: 'station' },
         { PTO: backsight.PTO || 'BS-1', N: backsight.N, E: backsight.E, Z: backsight.Z, CD: 'PTO_ATRAS', type: 'backsight' },
         ...sinBase
       ];
@@ -691,7 +695,6 @@ export default function App() {
     // Acceso numérico rápido desde ROOT
     if (screenState === 'ROOT') {
       if (key === '1') { setScreenState('OBS'); setActiveField(0); }
-      else if (key === '2') { setScreenState('USB_MENU'); setUsbMenuSelection(1); }
       else if (key === '3') { setScreenState('DATO_MENU'); setMenuSelection(1); }
       return;
     }
@@ -1012,6 +1015,7 @@ export default function App() {
         if (readTargetContext === 'OCC') {
           setStation(s => ({
             ...s,
+            PTO: selected.PTO,
             N: selected.N,
             E: selected.E,
             Z: selected.Z
@@ -1022,7 +1026,7 @@ export default function App() {
           setLcdMessage(`PTO ${selected.PTO}\nCARGADO EN Y0,X0,Z0`);
           setTimeout(() => {
             setScreenState('OCC_ORIEN');
-            setActiveField(3); // Pasa a Altura Instrumento HI
+            setActiveField(4); // Pasa a Altura Instrumento HI
           }, 1000);
         } else {
           setBacksight({
@@ -1041,9 +1045,9 @@ export default function App() {
       return;
     }
 
-    // Formulario de Estacionamiento (11 campos con scroll)
+    // Formulario de Estacionamiento (12 campos con scroll)
     if (screenState === 'OCC_ORIEN') {
-      if (activeField < 10) {
+      if (activeField < 11) {
         setActiveField(f => f + 1);
       } else {
         setActiveField(0);
@@ -1211,7 +1215,7 @@ export default function App() {
     } else if (screenState === 'USB_SAVE_JOB') {
       setScreenState('USB_MENU');
     } else if (screenState === 'USB_MENU') {
-      setScreenState('ROOT');
+      setScreenState('MED');
     } else if (screenState === 'USB_TTYPE') {
       setScreenState('USB_MENU');
     } else if (screenState === 'TILT') {
@@ -1323,8 +1327,8 @@ export default function App() {
     }
 
     if (screenState === 'OCC_ORIEN') {
-      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 10));
-      if (dir === 'DOWN') setActiveField(f => (f < 10 ? f + 1 : 0));
+      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 11));
+      if (dir === 'DOWN') setActiveField(f => (f < 11 ? f + 1 : 0));
     } else if (screenState === 'ERXYZ') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
       if (dir === 'DOWN') setActiveField(f => (f < 3 ? f + 1 : 0));
@@ -1353,16 +1357,12 @@ export default function App() {
       return;
     }
 
-    // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
+    // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[], F3=[DATO], F4=[CNFG]
     if (screenState === 'ROOT') {
       if (fNum === 1) {
         // F1=[OBS] -> va a Observación
         setScreenState('OBS');
         setActiveField(0);
-      } else if (fNum === 2) {
-        // F2=[USB] -> menú USB
-        setScreenState('USB_MENU');
-        setUsbMenuSelection(1);
       } else if (fNum === 3) {
         // F3=[DATO] -> menú DATO
         setScreenState('DATO_MENU');
@@ -1389,17 +1389,22 @@ export default function App() {
           handleShiftPress();
         }
       } else if (medPage === 2) {
-        // Pág 2: [MDR] [DESPLZ] [TOPO] [REPL]
+        // Pág 2: [OBS] [USB] [DATO] [CNFG]
         if (fNum === 1) {
-          setIsMeasuring(true);
-          setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
-        } else if (fNum === 2) {
-          setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
-        } else if (fNum === 3) {
+          // [OBS] -> va a Observación
           setScreenState('OBS');
           setActiveField(0);
+        } else if (fNum === 2) {
+          // [USB] -> Menú USB
+          setScreenState('USB_MENU');
+          setUsbMenuSelection(1);
+        } else if (fNum === 3) {
+          // [DATO] -> Menú DATO
+          setScreenState('DATO_MENU');
+          setMenuSelection(1);
         } else if (fNum === 4) {
-          setLcdMessage('MODO REPLANTEO (S-O)\nSELECCIONE PTO');
+          // [CNFG] -> Configuración
+          setLcdMessage('CONFIGURACIÓN ES-105\nUNIDAD: DEG/METRO\nEDM: PRISMA');
         }
       } else {
         // Pág 3: [MED] [GHV] [AZ-0] [COORD]
@@ -1842,10 +1847,10 @@ export default function App() {
       case 'TILT':
         return ['OK', '', '', 'TILT'];
       case 'ROOT':
-        return ['OBS', 'USB', 'DATO', 'CNFG'];
+        return ['OBS', '', 'DATO', 'CNFG'];
       case 'MED':
         if (medPage === 1) return ['MENU', 'COMP', 'ANG-H', 'EDM'];
-        if (medPage === 2) return ['MDR', 'DESPLZ', 'TOPO', 'REPL'];
+        if (medPage === 2) return ['OBS', 'USB', 'DATO', 'CNFG'];
         return ['MED', 'GHV', 'AZ-0', 'COORD'];
       case 'MAIN':
         return mainPage === 1
@@ -2717,12 +2722,13 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, HI + CAMPOS ATMOSFÉRICOS CON SCROLL) */}
+                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, PTO, HI + CAMPOS ATMOSFÉRICOS CON SCROLL) */}
                       {screenState === 'OCC_ORIEN' && (() => {
                         const occFields = [
                           { label: 'Y0', val: `${station.N.toFixed(3)} m` },
                           { label: 'X0', val: `${station.E.toFixed(3)} m` },
                           { label: 'Z0', val: `${station.Z.toFixed(3)} m` },
+                          { label: 'PTO', val: station.PTO || 'EST-1' },
                           { label: 'HI', val: `${station.HI.toFixed(3)} m` },
                           { label: 'Cd', val: stationAtm.CD },
                           { label: 'Operador', val: stationAtm.operador },
@@ -2743,7 +2749,7 @@ export default function App() {
                               <div className="flex items-center gap-1">
                                 {scrollOffset > 0 && <span className="text-[10px] text-neutral-900 font-bold">▲</span>}
                                 {scrollOffset + 4 < occFields.length && <span className="text-[10px] text-neutral-900 font-bold">▼</span>}
-                                <span className="text-[10px] font-bold">[{activeField + 1}/11]</span>
+                                <span className="text-[10px] font-bold">[{activeField + 1}/12]</span>
                               </div>
                             </div>
                             {visibleOccFields.map((item, localIdx) => {
@@ -2766,7 +2772,7 @@ export default function App() {
                               );
                             })}
                             <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                              {activeField >= 4 ? 'Datos Atmosféricos • ▲ / ▼: Scroll' : 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'}
+                              {activeField >= 5 ? 'Datos Atmosféricos • ▲ / ▼: Scroll' : 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'}
                             </div>
                           </div>
                         );
@@ -2821,8 +2827,14 @@ export default function App() {
                             <span>COMPROB. ORIEN.</span>
                             <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
                           </div>
-                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
-                            <div className="flex justify-between items-center text-xs">
+                          <div className="space-y-0.5 bg-black/5 p-1 rounded">
+                            <div className="text-[11px] font-bold text-neutral-900 border-b border-neutral-800/20 pb-0.5">
+                              Estc. Ref.
+                            </div>
+                            <div className="text-[11px] font-bold text-neutral-900 border-b border-neutral-800/20 pb-0.5">
+                              Lect. Ref.
+                            </div>
+                            <div className="flex justify-between items-center text-xs pt-0.5">
                               <span className="font-bold">AZ   :</span>
                               <span className="font-mono font-bold">{formatDMS(checkBsData.azTeo)}</span>
                             </div>

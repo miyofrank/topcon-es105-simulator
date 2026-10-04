@@ -1789,7 +1789,7 @@ export default function App() {
         return;
       }
 
-      if (isCurrentFieldAlpha && ((e.key >= 'a' && e.key <= 'z') || (e.key >= 'A' && e.key <= 'Z') || e.key === '_')) {
+      if (isCurrentFieldAlpha && e.key.length === 1 && /^[a-zA-Z0-9_\-]$/.test(e.key)) {
         e.preventDefault();
         handleKeypadPress(e.key.toUpperCase());
         return;

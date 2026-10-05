@@ -1,35 +1,69 @@
 import React, { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Lock, Mail, User, KeyRound, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import {
+  Lock,
+  Mail,
+  User,
+  KeyRound,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  ArrowRight,
+  LogOut
+} from 'lucide-react';
 
 interface AuthWrapperProps {
   children: ReactNode;
 }
 
 export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
-  // 1. Estado de Token y Modo
+  // 1. Estado de Sesión y Modo
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
   const [isLoginMode, setIsLoginMode] = useState<boolean>(true);
 
-  // 2. Campos del Formulario
-  const [name, setName] = useState<string>('');
+  // 2. Estados de Formulario
+  const [nombre, setNombre] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const [authCode, setAuthCode] = useState<string>('');
+  const [codigoInvitacion, setCodigoInvitacion] = useState<string>('');
 
-  // 3. Estados de Carga y Feedback
+  // 3. Feedback Visual y Carga
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Si ya existe sesión activa, renderiza directamente el simulador
+  // Función para Cerrar Sesión
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    window.location.reload();
+  };
+
+  // Si existe el token, retorna la app envuelta con el botón flotante discreto de Cerrar Sesión
   if (token) {
-    return <>{children}</>;
+    return (
+      <>
+        {/* Botón Flotante y Discreto de Cerrar Sesión */}
+        <aside aria-label="Control de Sesión" className="fixed top-2.5 right-3 z-50">
+          <button
+            onClick={handleLogout}
+            title="Cerrar Sesión del Simulador"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-neutral-400 hover:text-amber-400 border border-neutral-700/60 hover:border-amber-500/40 text-xs font-semibold backdrop-blur-md shadow-lg transition-all duration-200 cursor-pointer group"
+          >
+            <LogOut size={13} className="text-neutral-400 group-hover:text-amber-400 transition-colors" />
+            <span>Cerrar Sesión</span>
+          </button>
+        </aside>
+        {children}
+      </>
+    );
   }
 
-  // Petición de Inicio de Sesión
+  // Petición de Inicio de Sesión (Login)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
     setIsLoading(true);
 
     try {
@@ -45,12 +79,12 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || data.message || data.error || 'Credenciales incorrectas o error en servidor');
+        throw new Error(data.detail || data.message || data.error || 'Credenciales incorrectas o error en el servidor');
       }
 
       const receivedToken = data.access_token || data.token;
       if (!receivedToken) {
-        throw new Error('Respuesta inválida: no se recibió access_token');
+        throw new Error('Respuesta inválida del servidor: no se recibió access_token');
       }
 
       localStorage.setItem('token', receivedToken);
@@ -59,17 +93,18 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       if (err instanceof Error) {
         setErrorMessage(err.message);
       } else {
-        setErrorMessage('Error al conectar con http://localhost:8000');
+        setErrorMessage('No se pudo conectar con el servidor (http://localhost:8000)');
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Petición de Registro
+  // Petición de Registro (Crear Cuenta)
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
     setIsLoading(true);
 
     try {
@@ -80,11 +115,12 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          name,
+          nombre,
+          name: nombre,
           email,
           password,
-          auth_code: authCode,
-          code: authCode
+          codigo_invitacion: codigoInvitacion,
+          auth_code: codigoInvitacion
         })
       });
 
@@ -94,20 +130,16 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
         throw new Error(data.detail || data.message || data.error || 'No se pudo completar el registro');
       }
 
-      const receivedToken = data.access_token || data.token;
-      if (receivedToken) {
-        localStorage.setItem('token', receivedToken);
-        setToken(receivedToken);
-      } else {
-        // Si el registro no retorna token inmediato, pasa a Login con mensaje
-        setIsLoginMode(true);
-        setErrorMessage(null);
-      }
+      // Registro exitoso: cambiar a modo Login y mostrar mensaje de éxito
+      setIsLoginMode(true);
+      setSuccessMessage(data.message || '¡Cuenta creada con éxito! Ya puedes iniciar sesión con tus credenciales.');
+      setPassword('');
+      setCodigoInvitacion('');
     } catch (err: unknown) {
       if (err instanceof Error) {
         setErrorMessage(err.message);
       } else {
-        setErrorMessage('Error al conectar con http://localhost:8000');
+        setErrorMessage('No se pudo conectar con el servidor (http://localhost:8000)');
       }
     } finally {
       setIsLoading(false);
@@ -117,39 +149,40 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950 text-slate-100 font-sans relative overflow-hidden select-none">
       
-      {/* Resplandor ambiental flotante (Efecto Antigravity) */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-80 h-80 bg-orange-600/5 rounded-full blur-[100px] pointer-events-none" />
+      {/* Fondos desenfocados ambientales en esquinas opuestas (Profundidad Antigravity) */}
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Tarjeta Glassmorphic Flotante */}
-      <div className="relative w-full max-w-md bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_0_40px_-10px_rgba(245,158,11,0.15)] rounded-3xl p-8 transition-all duration-300 z-10">
+      {/* Tarjeta Glassmorphism Flotante */}
+      <div className="relative w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_50px_-12px_rgba(245,158,11,0.15)] rounded-3xl p-8 transition-all duration-300 z-10">
         
-        {/* Cabecera Industrial Topcon */}
-        <div className="text-center space-y-2 mb-6">
-          <div className="inline-flex items-center gap-2 bg-neutral-900/80 border border-neutral-800 px-3 py-1 rounded-full shadow-inner">
-            <span className="bg-amber-500 text-slate-950 font-black px-2 py-0.5 rounded text-[10px] tracking-wider uppercase shadow">
-              TOPCON
-            </span>
-            <span className="text-xs font-mono font-bold text-neutral-300">
-              ES-105 SYSTEM
-            </span>
+        {/* Cabecera con Logo Tipográfico 'ES' y Título Dinámico */}
+        <div className="flex flex-col items-center text-center space-y-3 mb-6">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 font-black text-xl flex items-center justify-center shadow-lg shadow-amber-500/25 font-mono">
+            ES
           </div>
 
-          <h1 className="text-2xl font-black tracking-tight text-white pt-1">
-            {isLoginMode ? 'Iniciar Sesión' : 'Registro de Operador'}
-          </h1>
-          <p className="text-xs text-neutral-400">
-            {isLoginMode
-              ? 'Accede a la consola de control y simulación topográfica'
-              : 'Completa tus datos y código de estación para registrarte'}
-          </p>
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-white">
+              {isLoginMode ? 'Acceso al Simulador' : 'Crear Cuenta'}
+            </h1>
+            <p className="text-xs text-neutral-400 pt-1">
+              {isLoginMode
+                ? 'Estación Total Topcon ES-105 • Sistema Académico'
+                : 'Registro de operador con código de autorización'}
+            </p>
+          </div>
         </div>
 
         {/* Pestañas de Alternancia (Tabs) */}
         <div className="flex bg-neutral-900/70 p-1 rounded-2xl border border-white/5 mb-6 text-xs font-semibold">
           <button
             type="button"
-            onClick={() => { setIsLoginMode(true); setErrorMessage(null); }}
+            onClick={() => {
+              setIsLoginMode(true);
+              setErrorMessage(null);
+              setSuccessMessage(null);
+            }}
             className={`flex-1 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
               isLoginMode
                 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold shadow-sm'
@@ -160,29 +193,41 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           </button>
           <button
             type="button"
-            onClick={() => { setIsLoginMode(false); setErrorMessage(null); }}
+            onClick={() => {
+              setIsLoginMode(false);
+              setErrorMessage(null);
+              setSuccessMessage(null);
+            }}
             className={`flex-1 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
               !isLoginMode
                 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold shadow-sm'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
-            Registrarse
+            Crear Cuenta
           </button>
         </div>
 
-        {/* Mensaje de Error */}
+        {/* Alerta de Error */}
         {errorMessage && (
-          <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5 animate-fadeIn">
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
             <AlertCircle size={16} className="shrink-0 text-rose-400" />
             <span className="leading-tight">{errorMessage}</span>
+          </div>
+        )}
+
+        {/* Alerta de Éxito */}
+        {successMessage && (
+          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
+            <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+            <span className="leading-tight">{successMessage}</span>
           </div>
         )}
 
         {/* Formulario */}
         <form onSubmit={isLoginMode ? handleLogin : handleRegister} className="space-y-4">
           
-          {/* Campo Nombre (Solo Registro) */}
+          {/* Campo Nombre (Solo en Modo Registro) */}
           {!isLoginMode && (
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider block">
@@ -194,9 +239,9 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
                   type="text"
                   required
                   placeholder="Ing. Topógrafo"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 focus:border-amber-500 text-white rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                  value={nombre}
+                  onChange={e => setNombre(e.target.value)}
+                  className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
                 />
               </div>
             </div>
@@ -215,7 +260,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
                 placeholder="operador@topografia.edu"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 focus:border-amber-500 text-white rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
               />
             </div>
           </div>
@@ -233,12 +278,12 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 focus:border-amber-500 text-white rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
               />
             </div>
           </div>
 
-          {/* Campo Código de Autorización (Solo Registro - Resaltado Especial) */}
+          {/* Campo Especial: Código de Autorización (Solo en Modo Registro) */}
           {!isLoginMode && (
             <div className="space-y-1.5 pt-1">
               <div className="flex justify-between items-center">
@@ -251,17 +296,18 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
                 </span>
               </div>
               <div className="relative">
+                <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-400/70" />
                 <input
                   type="text"
                   required
                   placeholder="Ej. ES105-GEO-2026"
-                  value={authCode}
-                  onChange={e => setAuthCode(e.target.value)}
-                  className="w-full bg-amber-500/5 border border-amber-500/40 focus:border-amber-400 text-amber-200 rounded-xl px-4 py-2.5 text-xs font-mono font-bold outline-none transition-all placeholder:text-amber-500/40 shadow-inner"
+                  value={codigoInvitacion}
+                  onChange={e => setCodigoInvitacion(e.target.value)}
+                  className="w-full bg-amber-500/5 border border-amber-500/30 text-amber-100 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold outline-none transition-all placeholder:text-amber-500/40 shadow-inner"
                 />
               </div>
               <p className="text-[10px] text-neutral-400 italic">
-                Clave de acceso institucional para habilitar la estación.
+                Código institucional para habilitación de la consola.
               </p>
             </div>
           )}
@@ -287,9 +333,9 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
         </form>
 
         {/* Pie de Tarjeta */}
-        <div className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-neutral-500 flex justify-between items-center">
-          <span>Topcon ES Series Total Station</span>
-          <span className="font-mono text-neutral-400">v2.57</span>
+        <div className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-neutral-500 flex justify-between items-center font-mono">
+          <span>TOPCON ES-105 STATION</span>
+          <span className="text-neutral-400 font-bold">ON-BOARD OS</span>
         </div>
       </div>
     </div>

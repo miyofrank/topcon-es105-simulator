@@ -67,7 +67,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -100,7 +100,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       if (err instanceof Error) {
         setErrorMessage(err.message);
       } else {
-        setErrorMessage('No se pudo conectar con el servidor (http://localhost:8000)');
+        setErrorMessage('No se pudo conectar con el servidor');
       }
     } finally {
       setIsLoading(false);
@@ -115,7 +115,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/register', {
+      const response = await fetch('/api/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -149,7 +149,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       if (err instanceof Error) {
         setErrorMessage(err.message);
       } else {
-        setErrorMessage('No se pudo conectar con el servidor (http://localhost:8000)');
+        setErrorMessage('No se pudo conectar con el servidor');
       }
     } finally {
       setIsLoading(false);

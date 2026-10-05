@@ -153,7 +153,7 @@ export default function App() {
 
   const [stationAtm, setStationAtm] = useState<StationAtm>({
     CD: 'BASE',
-    operador: 'TOPOGRAFO',
+    operador: localStorage.getItem('user_name') || 'TOPOGRAFO',
     clima: 'DESPEJADO',
     viento: 'Calma',
     temp: '20°C',

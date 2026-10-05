@@ -79,12 +79,19 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || data.message || data.error || 'Credenciales incorrectas o error en el servidor');
+        const errorDetail = Array.isArray(data.detail)
+          ? data.detail.map((item: { msg?: string }) => item.msg || 'Dato inválido').join(', ')
+          : (typeof data.detail === 'string' ? data.detail : (data.message || data.error || 'Credenciales incorrectas o error en el servidor'));
+        throw new Error(errorDetail);
       }
 
       const receivedToken = data.access_token || data.token;
       if (!receivedToken) {
         throw new Error('Respuesta inválida del servidor: no se recibió access_token');
+      }
+
+      if (data.nombre) {
+        localStorage.setItem('user_name', data.nombre);
       }
 
       localStorage.setItem('token', receivedToken);
@@ -127,12 +134,15 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || data.message || data.error || 'No se pudo completar el registro');
+        const errorDetail = Array.isArray(data.detail)
+          ? data.detail.map((item: { msg?: string }) => item.msg || 'Dato inválido').join(', ')
+          : (typeof data.detail === 'string' ? data.detail : (data.message || data.error || 'No se pudo completar el registro'));
+        throw new Error(errorDetail);
       }
 
       // Registro exitoso: cambiar a modo Login y mostrar mensaje de éxito
       setIsLoginMode(true);
-      setSuccessMessage(data.message || '¡Cuenta creada con éxito! Ya puedes iniciar sesión con tus credenciales.');
+      setSuccessMessage(data.mensaje || data.message || '¡Cuenta creada con éxito! Ya puedes iniciar sesión con tus credenciales.');
       setPassword('');
       setCodigoInvitacion('');
     } catch (err: unknown) {

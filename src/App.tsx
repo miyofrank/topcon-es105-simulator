@@ -117,7 +117,13 @@ type ScreenState =
   | 'USB_MENU'
   | 'USB_TTYPE'
   | 'USB_SAVE_JOB'
-  | 'USB_FORMAT';
+  | 'USB_FORMAT'
+  | 'GRAPHIC_MENU'
+  | 'REPLANTEO_MENU'
+  | 'REPL_DATA'
+  | 'TOPO_MENU'
+  | 'TOPO_NOTA'
+  | 'TOPO_VER';
 
 // Conversión sexagesimal estándar topográfica (DD°MM'SS")
 export const formatDMS = (deg: number): string => {
@@ -318,6 +324,29 @@ export default function App() {
   const [selectedOccLoadIdx, setSelectedOccLoadIdx] = useState<number>(0);
   const [occSearchBuffer, setOccSearchBuffer] = useState<string>('');
   const [trisecSelection, setTrisecSelection] = useState<number>(2); // 1. A, 2. YXZ, 3. Cota, 4. Ajustes
+
+  // Estados para Menú Gráfico Principal, RePlanteo y TOPO
+  const [graphicMenuIdx, setGraphicMenuIdx] = useState<number>(0);
+  const [replMenuSelection, setReplMenuSelection] = useState<number>(1);
+  const [replDisplayMode, setReplDisplayMode] = useState<'COORD' | 'DISP'>('COORD');
+  const [topoMenuSelection, setTopoMenuSelection] = useState<number>(1);
+  const [topoVerPage, setTopoVerPage] = useState<1 | 2>(1);
+
+  const GRAPHIC_MENU_ITEMS = useMemo(() => [
+    { id: 'coord', name: 'Coord' },
+    { id: 'replanteo', name: 'RePlanteo' },
+    { id: 'desplz', name: 'DesPlz.' },
+    { id: 'topo', name: 'ToPografia' },
+    { id: 'mdr', name: 'MDR' },
+    { id: 'calc_area', name: 'Calc.Area' },
+    { id: 'repl_linea', name: 'RePl Linea' },
+    { id: 'repl_arco', name: 'RePl Arco' },
+    { id: 'proyecto_p', name: 'Proyecto-P' },
+    { id: 'pt_a_linea', name: 'Pt.a.Linea' },
+    { id: 'poligonal', name: 'Poligonal' },
+    { id: 'vial', name: 'Vial' },
+    { id: 'per_trans', name: 'Per.Trans.' }
+  ], []);
 
   const occLoadPoints = useMemo<TopoPoint[]>(() => {
     const defaultPts: TopoPoint[] = [
@@ -954,11 +983,33 @@ export default function App() {
       return;
     }
 
+    // Selección numérica en REPLANTEO_MENU
+    if (screenState === 'REPLANTEO_MENU') {
+      if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); setOccPage(1); }
+      else if (key === '2') { setScreenState('REPL_DATA'); setReplDisplayMode('COORD'); }
+      else if (key === '3') { setScreenState('OBS'); setActiveField(0); }
+      else if (key === '4') { handleShiftPress(); }
+      return;
+    }
+
+    // Selección numérica en TOPO_MENU
+    if (screenState === 'TOPO_MENU') {
+      if (key === '1') { setScreenState('OBS'); setActiveField(0); }
+      else if (key === '2') { setScreenState('TOPO_NOTA'); }
+      else if (key === '3') { setScreenState('TOPO_VER'); setTopoVerPage(1); }
+      else if (key === '4') { setLcdMessage('BORRAR TOPO:\nSIN REGISTROS'); }
+      return;
+    }
+
     if (
       screenState === 'TILT' ||
       screenState === 'MED' ||
       screenState === 'COMPEN' ||
       screenState === 'MAIN' ||
+      screenState === 'GRAPHIC_MENU' ||
+      screenState === 'REPL_DATA' ||
+      screenState === 'TOPO_NOTA' ||
+      screenState === 'TOPO_VER' ||
       screenState === 'OCC_LOAD_LIST' ||
       screenState === 'OCC_ACLER' ||
       screenState === 'KNOWN_DEL' ||
@@ -1021,6 +1072,95 @@ export default function App() {
         setIsMeasuring(true);
         setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
       }
+      return;
+    }
+
+    // Menú Gráfico Principal
+    if (screenState === 'GRAPHIC_MENU') {
+      const item = GRAPHIC_MENU_ITEMS[graphicMenuIdx];
+      if (item.id === 'coord') {
+        setScreenState('COORD_MENU');
+        setMenuSelection(1);
+      } else if (item.id === 'replanteo') {
+        setScreenState('REPLANTEO_MENU');
+        setReplMenuSelection(1);
+      } else if (item.id === 'topo') {
+        setScreenState('TOPO_MENU');
+        setTopoMenuSelection(1);
+      } else if (item.id === 'desplz') {
+        setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+      } else if (item.id === 'mdr') {
+        setLcdMessage('MEDICIÓN DIST.\nREMOTA (MDR)');
+      } else if (item.id === 'calc_area') {
+        setLcdMessage('CÁLCULO DE ÁREA:\nSELECCIONE VÉRTICES');
+      } else if (item.id === 'repl_linea') {
+        setLcdMessage('REPLANTEO LÍNEA:\nDEFINA LÍNEA BASE');
+      } else if (item.id === 'repl_arco') {
+        setLcdMessage('REPLANTEO ARCO:\nDEFINA RADIO Y ARCO');
+      } else if (item.id === 'proyecto_p') {
+        setLcdMessage('PROYECCIÓN PTO:\nPLANO DE REF.');
+      } else if (item.id === 'pt_a_linea') {
+        setLcdMessage('DIST PTO A LÍNEA:\nSELECCIONE EJE');
+      } else if (item.id === 'poligonal') {
+        setLcdMessage('POLIGONAL:\nCÁLCULO Y AJUSTE');
+      } else if (item.id === 'vial') {
+        setLcdMessage('DISEÑO VIAL:\nEJE Y SECCIONES');
+      } else if (item.id === 'per_trans') {
+        setLcdMessage('PERFIL TRANSVERSAL:\nESTACIÓN Y TALUD');
+      }
+      return;
+    }
+
+    // Menú RePlanteo
+    if (screenState === 'REPLANTEO_MENU') {
+      if (replMenuSelection === 1) {
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+        setOccPage(1);
+      } else if (replMenuSelection === 2) {
+        setScreenState('REPL_DATA');
+        setReplDisplayMode('COORD');
+      } else if (replMenuSelection === 3) {
+        setScreenState('OBS');
+        setActiveField(0);
+      } else if (replMenuSelection === 4) {
+        handleShiftPress();
+      }
+      return;
+    }
+
+    // Datos de RePlant.: Pulsar OK o ENTER lleva a ComPen
+    if (screenState === 'REPL_DATA') {
+      setScreenState('COMPEN');
+      return;
+    }
+
+    // Menú TOPO
+    if (screenState === 'TOPO_MENU') {
+      if (topoMenuSelection === 1) {
+        setScreenState('OBS');
+        setActiveField(0);
+      } else if (topoMenuSelection === 2) {
+        setScreenState('TOPO_NOTA');
+      } else if (topoMenuSelection === 3) {
+        setScreenState('TOPO_VER');
+        setTopoVerPage(1);
+      } else if (topoMenuSelection === 4) {
+        setLcdMessage('BORRAR TOPO:\nSIN REGISTROS');
+      }
+      return;
+    }
+
+    // TOPO Nota
+    if (screenState === 'TOPO_NOTA') {
+      setScreenState('TOPO_MENU');
+      setLcdMessage('NOTA GUARDADA');
+      return;
+    }
+
+    // TOPO Ver
+    if (screenState === 'TOPO_VER') {
+      setScreenState('TOPO_MENU');
       return;
     }
 
@@ -1407,6 +1547,11 @@ export default function App() {
     cargarPuntoSeleccionado,
     handleOccSearchConfirm,
     trisecSelection,
+    graphicMenuIdx,
+    GRAPHIC_MENU_ITEMS,
+    replMenuSelection,
+    topoMenuSelection,
+    handleShiftPress,
     usbMenuSelection,
     usbSelectedJob,
     usbFormatSelection,
@@ -1461,6 +1606,18 @@ export default function App() {
       setScreenState('KNOWN_PTS');
     } else if (screenState === 'SELECT_KNOWN_PT') {
       setScreenState(readTargetContext === 'OCC' ? 'OCC_ORIEN' : 'ERXYZ');
+    } else if (screenState === 'GRAPHIC_MENU') {
+      setScreenState('MED');
+    } else if (screenState === 'REPLANTEO_MENU') {
+      setScreenState('GRAPHIC_MENU');
+    } else if (screenState === 'REPL_DATA') {
+      setScreenState('REPLANTEO_MENU');
+    } else if (screenState === 'TOPO_MENU') {
+      setScreenState('MED');
+    } else if (screenState === 'TOPO_NOTA') {
+      setScreenState('TOPO_MENU');
+    } else if (screenState === 'TOPO_VER') {
+      setScreenState('TOPO_MENU');
     } else if (screenState === 'COORD_MENU') {
       setScreenState('MED');
     } else if (screenState === 'OCC_LOAD_SEARCH') {
@@ -1500,6 +1657,35 @@ export default function App() {
   const handleArrow = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
     playBeep(1050, 0.04);
     commitCurrentField();
+
+    if (screenState === 'GRAPHIC_MENU') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setGraphicMenuIdx(i => (i > 0 ? i - 1 : GRAPHIC_MENU_ITEMS.length - 1));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setGraphicMenuIdx(i => (i < GRAPHIC_MENU_ITEMS.length - 1 ? i + 1 : 0));
+      }
+      return;
+    }
+
+    if (screenState === 'REPLANTEO_MENU') {
+      if (dir === 'UP') setReplMenuSelection(s => (s > 1 ? s - 1 : 4));
+      if (dir === 'DOWN') setReplMenuSelection(s => (s < 4 ? s + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'TOPO_MENU') {
+      if (dir === 'UP') setTopoMenuSelection(s => (s > 1 ? s - 1 : 4));
+      if (dir === 'DOWN') setTopoMenuSelection(s => (s < 4 ? s + 1 : 1));
+      return;
+    }
+
+    if (screenState === 'TOPO_VER') {
+      if (dir === 'UP' || dir === 'DOWN') {
+        setTopoVerPage(p => (p === 1 ? 2 : 1));
+      }
+      return;
+    }
 
     if (screenState === 'COORD_MENU') {
       if (dir === 'UP' || dir === 'DOWN') {
@@ -1640,7 +1826,7 @@ export default function App() {
       if (dir === 'DOWN') setActiveField(1); // Flecha abajo muestra campo Cd
       if (dir === 'UP') setActiveField(0);   // Flecha arriba regresa a PTO
     }
-  }, [screenState, knownPoints.length, jobsList.length, occLoadPoints.length, commitCurrentField, playBeep]);
+  }, [screenState, knownPoints.length, jobsList.length, occLoadPoints.length, GRAPHIC_MENU_ITEMS.length, commitCurrentField, playBeep]);
 
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
@@ -1702,7 +1888,8 @@ export default function App() {
       if (medPage === 1) {
         // Pág 1: [MENU] (F1), [COMP] (F2), [RNG H] (F3), [EDM] (F4)
         if (fNum === 1) {
-          setScreenState('ROOT');
+          setScreenState('GRAPHIC_MENU');
+          setGraphicMenuIdx(0);
         } else if (fNum === 2) {
           // [COMP] -> Pantalla del Compensador ComPen
           setScreenState('COMPEN');
@@ -1720,10 +1907,13 @@ export default function App() {
         } else if (fNum === 2) {
           setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
         } else if (fNum === 3) {
-          setScreenState('OBS');
-          setActiveField(0);
+          // [TOPO] -> Flujo TOPO
+          setScreenState('TOPO_MENU');
+          setTopoMenuSelection(1);
         } else if (fNum === 4) {
-          setLcdMessage('MODO REPLANTEO\nSELECCIONE PTO');
+          // [REPL] -> Flujo RePlanteo
+          setScreenState('REPLANTEO_MENU');
+          setReplMenuSelection(1);
         }
       } else {
         // Pág 3: [MED] (F1), [G V] (F2), [AZ-0] (F3), [COORD] (F4)
@@ -2079,6 +2269,69 @@ export default function App() {
       return;
     }
 
+    // Menú Gráfico Principal: Softkeys: , , , ENT
+    if (screenState === 'GRAPHIC_MENU') {
+      if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // RePlanteo Menú: Softkeys: , , , ENT
+    if (screenState === 'REPLANTEO_MENU') {
+      if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // Datos de RePlant.: Softkeys: CARG (F1), DISP (F2), (F3), OK (F4)
+    if (screenState === 'REPL_DATA') {
+      if (fNum === 1) {
+        cargarPuntoSeleccionado();
+      } else if (fNum === 2) {
+        playLaserBeep();
+        setReplDisplayMode(m => (m === 'COORD' ? 'DISP' : 'COORD'));
+      } else if (fNum === 4) {
+        // Pulsar OK lleva a ComPen
+        setScreenState('COMPEN');
+      }
+      return;
+    }
+
+    // TOPO Menú: Softkeys: , , , ENT
+    if (screenState === 'TOPO_MENU') {
+      if (fNum === 4) {
+        handleEnterPress();
+      }
+      return;
+    }
+
+    // TOPO Nota: Softkeys: , , , OK
+    if (screenState === 'TOPO_NOTA') {
+      if (fNum === 4) {
+        setScreenState('TOPO_MENU');
+        setLcdMessage('NOTA GUARDADA');
+      }
+      return;
+    }
+
+    // TOPO Ver: Softkeys: P-1 (F1), 1RO (F2), ULTIM (F3), BUSC (F4)
+    if (screenState === 'TOPO_VER') {
+      if (fNum === 1) {
+        setTopoVerPage(p => (p === 1 ? 2 : 1));
+      } else if (fNum === 2) {
+        playBeep(1200, 0.05);
+        setLcdMessage('1RO: PTO 165');
+      } else if (fNum === 3) {
+        playBeep(1200, 0.05);
+        setLcdMessage('ULTIM: PTO 165');
+      } else if (fNum === 4) {
+        setLcdMessage('BUSCAR PTO:\n165');
+      }
+      return;
+    }
+
     // Orientar Punto Atrás: F1=[CARG], F4=[OK] -> Comprobación
     if (screenState === 'ERXYZ') {
       if (fNum === 1) {
@@ -2250,6 +2503,9 @@ export default function App() {
         return ['', '', '', 'OK'];
       case 'OCC_ACLER':
         return ['REG', '', '', 'OK'];
+      case 'GRAPHIC_MENU':
+      case 'REPLANTEO_MENU':
+      case 'TOPO_MENU':
       case 'OCC_TRISEC':
       case 'COORD_MENU':
       case 'DATO_MENU':
@@ -2258,6 +2514,12 @@ export default function App() {
       case 'USB_MENU':
       case 'USB_TTYPE':
         return ['', '', '', 'ENT'];
+      case 'REPL_DATA':
+        return ['CARG', 'DISP', '', 'OK'];
+      case 'TOPO_NOTA':
+        return ['', '', '', 'OK'];
+      case 'TOPO_VER':
+        return [topoVerPage === 1 ? 'P-1' : 'P-2', '1RO', 'ULTIM', 'BUSC'];
       case 'KNOWN_INPUT':
         return ['', '', isAlphaKeyboardOpen ? 'NUM' : 'ALF', 'OK'];
       case 'KNOWN_DEL':
@@ -2313,6 +2575,174 @@ export default function App() {
     if (edmMode === 'prism') return 'P1:PRISMA';
     if (edmMode === 'sheet') return 'SHT:DIANA';
     return 'NP:DIRECTA';
+  };
+
+  // Arte dinámico SVG/LCD para las opciones del Menú Gráfico Principal
+  const renderGraphicMenuSvg = (id: string) => {
+    switch (id) {
+      case 'coord':
+        // Opción Coord: Ícono por defecto (Punto y líneas)
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="40" y1="8" x2="40" y2="72" strokeWidth="2" />
+            <line x1="8" y1="40" x2="72" y2="40" strokeWidth="2" />
+            <polygon points="40,5 37,11 43,11" fill="currentColor" />
+            <polygon points="75,40 69,37 69,43" fill="currentColor" />
+            <circle cx="40" cy="40" r="3" fill="currentColor" />
+            <circle cx="58" cy="22" r="4" fill="currentColor" />
+            <line x1="58" y1="22" x2="58" y2="40" strokeWidth="1.5" strokeDasharray="2,2" />
+            <line x1="58" y1="22" x2="40" y2="22" strokeWidth="1.5" strokeDasharray="2,2" />
+            <circle cx="40" cy="40" r="24" strokeWidth="1" strokeDasharray="3,3" />
+          </svg>
+        );
+      case 'replanteo':
+        // Opción RePlanteo: Ícono de un martillo y un clavo
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="10" y1="68" x2="70" y2="68" strokeWidth="2.5" />
+            <rect x="33" y="42" width="14" height="4" rx="1" fill="currentColor" />
+            <line x1="40" y1="46" x2="40" y2="68" strokeWidth="3.5" strokeLinecap="round" />
+            <polygon points="38,68 42,68 40,73" fill="currentColor" />
+            <g transform="rotate(-25 40 40)">
+              <rect x="24" y="24" width="22" height="12" rx="1.5" fill="currentColor" />
+              <rect x="22" y="26" width="3" height="8" fill="currentColor" />
+              <line x1="35" y1="24" x2="35" y2="-12" strokeWidth="5" strokeLinecap="round" />
+            </g>
+            <line x1="28" y1="36" x2="22" y2="34" strokeWidth="1.5" />
+            <line x1="30" y1="46" x2="24" y2="48" strokeWidth="1.5" />
+            <line x1="50" y1="38" x2="56" y2="36" strokeWidth="1.5" />
+          </svg>
+        );
+      case 'desplz':
+        // Opción DesPlz.: Ícono de un cilindro hueco (prisma)
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <ellipse cx="40" cy="22" rx="22" ry="9" strokeWidth="2" />
+            <ellipse cx="40" cy="22" rx="13" ry="5.5" strokeWidth="1.8" fill="rgba(0,0,0,0.15)" />
+            <polygon points="40,24 35,32 45,32" fill="currentColor" />
+            <line x1="18" y1="22" x2="18" y2="54" strokeWidth="2" />
+            <line x1="62" y1="22" x2="62" y2="54" strokeWidth="2" />
+            <path d="M 18,54 A 22,9 0 0,0 62,54" strokeWidth="2" />
+            <path d="M 14,68 L 66,68 M 19,65 L 14,68 L 19,71 M 61,65 L 66,68 L 61,71" strokeWidth="1.8" />
+          </svg>
+        );
+      case 'topo':
+        // Opción ToPografia: Ícono de cuatro puntos conectados formando una figura/terreno
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <polygon points="18,28 62,18 64,54 22,62" strokeWidth="2" strokeLinejoin="round" fill="rgba(0,0,0,0.06)" />
+            <path d="M 20,44 Q 40,32 63,36" strokeWidth="1.2" strokeDasharray="3,2" />
+            <path d="M 21,53 Q 42,44 63,47" strokeWidth="1.2" strokeDasharray="3,2" />
+            <circle cx="18" cy="28" r="4.5" fill="currentColor" />
+            <circle cx="62" cy="18" r="4.5" fill="currentColor" />
+            <circle cx="64" cy="54" r="4.5" fill="currentColor" />
+            <circle cx="22" cy="62" r="4.5" fill="currentColor" />
+          </svg>
+        );
+      case 'mdr':
+        // Opción MDR: Ícono de una línea angulada con altura
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="10" y1="68" x2="70" y2="68" strokeWidth="2" />
+            <polygon points="18,68 14,62 22,62" fill="currentColor" />
+            <line x1="18" y1="62" x2="58" y2="52" strokeWidth="2" />
+            <circle cx="58" cy="52" r="3.5" fill="currentColor" />
+            <line x1="18" y1="62" x2="58" y2="20" strokeWidth="1.5" strokeDasharray="3,2" />
+            <circle cx="58" cy="20" r="3.5" fill="currentColor" />
+            <line x1="58" y1="20" x2="58" y2="52" strokeWidth="2.5" />
+            <polygon points="58,18 55,24 61,24" fill="currentColor" />
+            <polygon points="58,54 55,48 61,48" fill="currentColor" />
+            <path d="M 28,62 A 12,12 0 0,0 26,56" strokeWidth="1.5" />
+          </svg>
+        );
+      case 'calc_area':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <polygon points="16,36 34,16 66,26 60,62 26,66" strokeWidth="2" fill="rgba(0,0,0,0.12)" strokeLinejoin="round" />
+            <line x1="22" y1="46" x2="56" y2="24" strokeWidth="1" strokeDasharray="2,2" />
+            <line x1="28" y1="60" x2="62" y2="38" strokeWidth="1" strokeDasharray="2,2" />
+            <circle cx="16" cy="36" r="3" fill="currentColor" />
+            <circle cx="34" cy="16" r="3" fill="currentColor" />
+            <circle cx="66" cy="26" r="3" fill="currentColor" />
+            <circle cx="60" cy="62" r="3" fill="currentColor" />
+            <circle cx="26" cy="66" r="3" fill="currentColor" />
+          </svg>
+        );
+      case 'repl_linea':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="12" y1="58" x2="68" y2="22" strokeWidth="2.5" />
+            <circle cx="12" cy="58" r="3.5" fill="currentColor" />
+            <circle cx="68" cy="22" r="3.5" fill="currentColor" />
+            <circle cx="48" cy="52" r="4" fill="currentColor" />
+            <line x1="48" y1="52" x2="40" y2="40" strokeWidth="1.8" strokeDasharray="2,2" />
+            <path d="M 40,40 L 44,43 L 42,45" strokeWidth="1.2" />
+          </svg>
+        );
+      case 'repl_arco':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <circle cx="20" cy="65" r="3" fill="currentColor" />
+            <path d="M 22,25 A 45,45 0 0,1 68,62" strokeWidth="2.5" />
+            <line x1="20" y1="65" x2="48" y2="34" strokeWidth="1.5" strokeDasharray="3,2" />
+            <circle cx="48" cy="34" r="3.5" fill="currentColor" />
+            <circle cx="22" cy="25" r="3" fill="currentColor" />
+            <circle cx="68" cy="62" r="3" fill="currentColor" />
+          </svg>
+        );
+      case 'proyecto_p':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="12" y1="60" x2="68" y2="40" strokeWidth="2.5" />
+            <circle cx="40" cy="18" r="4" fill="currentColor" />
+            <line x1="40" y1="18" x2="40" y2="50" strokeWidth="2" strokeDasharray="3,2" />
+            <circle cx="40" cy="50" r="3" fill="currentColor" />
+            <path d="M 40,43 L 46,41 L 46,48" strokeWidth="1.2" />
+          </svg>
+        );
+      case 'pt_a_linea':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="14" y1="64" x2="66" y2="32" strokeWidth="2.5" />
+            <circle cx="14" cy="64" r="3" fill="currentColor" />
+            <circle cx="66" cy="32" r="3" fill="currentColor" />
+            <circle cx="32" cy="26" r="4" fill="currentColor" />
+            <line x1="32" y1="26" x2="44" y2="46" strokeWidth="2" strokeDasharray="2,2" />
+            <polygon points="44,46 41,40 47,43" fill="currentColor" />
+          </svg>
+        );
+      case 'poligonal':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <polyline points="14,64 28,34 52,48 68,18" strokeWidth="2" strokeLinejoin="round" />
+            <circle cx="14" cy="64" r="3.5" fill="currentColor" />
+            <circle cx="28" cy="34" r="3.5" fill="currentColor" />
+            <circle cx="52" cy="48" r="3.5" fill="currentColor" />
+            <circle cx="68" cy="18" r="3.5" fill="currentColor" />
+            <path d="M 24,42 A 8,8 0 0,0 34,40" strokeWidth="1.2" />
+            <path d="M 46,44 A 8,8 0 0,0 56,40" strokeWidth="1.2" />
+          </svg>
+        );
+      case 'vial':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <path d="M 12,68 C 24,52 28,38 34,14" strokeWidth="2.5" />
+            <path d="M 68,68 C 56,52 52,38 46,14" strokeWidth="2.5" />
+            <path d="M 40,68 C 40,52 40,38 40,14" strokeWidth="1.8" strokeDasharray="5,4" />
+          </svg>
+        );
+      case 'per_trans':
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <path d="M 10,48 Q 40,38 70,30" strokeWidth="1.5" strokeDasharray="3,2" />
+            <polyline points="14,56 26,42 54,42 66,56" strokeWidth="2.5" strokeLinejoin="round" />
+            <line x1="40" y1="20" x2="40" y2="66" strokeWidth="1.5" strokeDasharray="4,2" />
+            <circle cx="40" cy="42" r="3" fill="currentColor" />
+          </svg>
+        );
+      default:
+        return null;
+    }
   };
 
   return (
@@ -2460,6 +2890,18 @@ export default function App() {
                         ? 'ACLR'
                         : screenState === 'OCC_TRISEC'
                         ? 'TRIS'
+                        : screenState === 'GRAPHIC_MENU'
+                        ? 'MENU'
+                        : screenState === 'REPLANTEO_MENU'
+                        ? 'REPL'
+                        : screenState === 'REPL_DATA'
+                        ? 'DATA'
+                        : screenState === 'TOPO_MENU'
+                        ? 'TOPO'
+                        : screenState === 'TOPO_NOTA'
+                        ? 'NOTA'
+                        : screenState === 'TOPO_VER'
+                        ? 'VER'
                         : 'MENU'}
                     </span>
 
@@ -3231,6 +3673,279 @@ export default function App() {
                           )}
                           <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
                             ▲ / ▼: Seleccionar • F4 o [ENT]: Cargar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'GRAPHIC_MENU': MENÚ GRÁFICO PRINCIPAL CON ARTE SVG DINÁMICO */}
+                      {screenState === 'GRAPHIC_MENU' && (() => {
+                        const visibleCount = 4;
+                        const startIdx = Math.max(0, Math.min(graphicMenuIdx - 1, GRAPHIC_MENU_ITEMS.length - visibleCount));
+                        const visibleItems = GRAPHIC_MENU_ITEMS.slice(startIdx, startIdx + visibleCount);
+                        const currentItem = GRAPHIC_MENU_ITEMS[graphicMenuIdx];
+
+                        return (
+                          <div className="flex flex-col h-full justify-between font-mono text-xs">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                              <span className="tracking-wide">--- MENÚ PRINCIPAL ---</span>
+                              <span className="text-[10px] font-bold">[{graphicMenuIdx + 1}/{GRAPHIC_MENU_ITEMS.length}]</span>
+                            </div>
+
+                            <div className="grid grid-cols-12 gap-1.5 items-center py-0.5 flex-1 min-h-0">
+                              {/* Lista a la izquierda */}
+                              <div className="col-span-7 space-y-0.5 min-w-0">
+                                {visibleItems.map((item, localIdx) => {
+                                  const realIdx = startIdx + localIdx;
+                                  const isSel = graphicMenuIdx === realIdx;
+                                  return (
+                                    <div
+                                      key={item.id}
+                                      onClick={() => setGraphicMenuIdx(realIdx)}
+                                      className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] min-w-0 ${
+                                        isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                      }`}
+                                    >
+                                      <span className="truncate">{realIdx + 1}. {item.name}</span>
+                                      {isSel && <span className="text-[9px] shrink-0 font-bold ml-0.5">▶</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Ícono dinámico a la derecha */}
+                              <div className="col-span-5 h-[104px] border border-neutral-800/50 rounded bg-black/5 flex flex-col items-center justify-center p-1 relative overflow-hidden shadow-inner">
+                                <div className="w-[62px] h-[62px] flex items-center justify-center text-neutral-950">
+                                  {renderGraphicMenuSvg(currentItem.id)}
+                                </div>
+                                <span className="text-[9px] font-black tracking-tight text-neutral-900 text-center truncate max-w-full mt-0.5 border-t border-neutral-800/20 w-full pt-0.5">
+                                  {currentItem.name}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 border-t border-neutral-800/20 font-sans">
+                              ▲ ▼ Seleccionar • [ENT] Entrar
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ESTADO 'REPLANTEO_MENU': MENÚ REPLANTEO */}
+                      {screenState === 'REPLANTEO_MENU' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- REPLANTEO ---</span>
+                            <span className="text-[10px] font-bold">[{replMenuSelection}/4]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. Occ.Orien.' },
+                            { id: 2, label: '2. Datos de RePlant.' },
+                            { id: 3, label: '3. Observacion' },
+                            { id: 4, label: '4. EDM' }
+                          ].map(item => {
+                            const isSel = replMenuSelection === item.id;
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  setReplMenuSelection(item.id);
+                                  if (item.id === 1) {
+                                    setScreenState('OCC_ORIEN');
+                                    setActiveField(0);
+                                    setOccPage(1);
+                                  } else if (item.id === 2) {
+                                    setScreenState('REPL_DATA');
+                                    setReplDisplayMode('COORD');
+                                  } else if (item.id === 3) {
+                                    setScreenState('OBS');
+                                    setActiveField(0);
+                                  } else if (item.id === 4) {
+                                    handleShiftPress();
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                              </div>
+                            );
+                          })}
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'REPL_DATA': DATOS DE REPLANT. */}
+                      {screenState === 'REPL_DATA' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>DATOS DE REPLANT.</span>
+                            <span className="text-[10px] font-bold">[{replDisplayMode}]</span>
+                          </div>
+
+                          <div className="space-y-1 bg-black/5 p-2 rounded">
+                            {replDisplayMode === 'COORD' ? (
+                              <>
+                                <div className="font-bold text-neutral-900 text-xs border-b border-neutral-800/10 pb-0.5">
+                                  P Coord
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold">XP:</span>
+                                  <span className="font-mono font-bold">9095533.595</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold">ZP:</span>
+                                  <span className="font-mono font-bold">4008.540</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold">HD</span>
+                                  <span className="font-mono font-bold">0.000m</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex justify-between items-center text-xs border-b border-neutral-800/10 pb-0.5">
+                                  <span className="font-bold">DistG</span>
+                                  <span className="font-mono font-bold">0.000m</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs py-0.5">
+                                  <span className="font-bold">Ang H:</span>
+                                  <span className="font-mono font-bold">113° 45' 58"</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold">HD</span>
+                                  <span className="font-mono font-bold">0.000m</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            F2=[DISP] Alternar • F4=[OK] Ir a ComPen
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'TOPO_MENU': MENÚ TOPO */}
+                      {screenState === 'TOPO_MENU' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- TOPOGRAFIA ---</span>
+                            <span className="text-[10px] font-bold">[{topoMenuSelection}/4]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. Dist*Coord' },
+                            { id: 2, label: '2. Nota' },
+                            { id: 3, label: '3. Ver' },
+                            { id: 4, label: '4. Borrar' }
+                          ].map(item => {
+                            const isSel = topoMenuSelection === item.id;
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  setTopoMenuSelection(item.id);
+                                  if (item.id === 1) {
+                                    setScreenState('OBS');
+                                    setActiveField(0);
+                                  } else if (item.id === 2) {
+                                    setScreenState('TOPO_NOTA');
+                                  } else if (item.id === 3) {
+                                    setScreenState('TOPO_VER');
+                                    setTopoVerPage(1);
+                                  } else if (item.id === 4) {
+                                    setLcdMessage('BORRAR TOPO:\nSIN REGISTROS');
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                              </div>
+                            );
+                          })}
+                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'TOPO_NOTA': NOTA TOPO */}
+                      {screenState === 'TOPO_NOTA' && (
+                        <div className="space-y-1.5 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>NOTA</span>
+                            <span className="text-[10px] font-bold">[TOPO]</span>
+                          </div>
+                          <div className="space-y-1 bg-black/5 p-2 rounded">
+                            <div className="text-xs font-bold text-neutral-950">
+                              REU Nota 6247
+                            </div>
+                            <div className="text-xs font-bold text-neutral-800">
+                              LEVC
+                            </div>
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-1 font-sans">
+                            F4=[OK] Guardar • [ESC] Volver
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'TOPO_VER': VER DATOS TOPO */}
+                      {screenState === 'TOPO_VER' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>DATOS TOPO</span>
+                            <span className="text-[10px] font-bold">[{topoVerPage === 1 ? 'P-1' : 'P-2'}]</span>
+                          </div>
+                          <div className="space-y-0.5 bg-black/5 p-1.5 rounded">
+                            {topoVerPage === 1 ? (
+                              <>
+                                <div className="flex justify-between items-center text-xs py-0.5">
+                                  <span className="font-bold">PTO</span>
+                                  <span className="font-mono font-bold">165</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs py-0.5">
+                                  <span className="font-bold">Ref.</span>
+                                  <span className="font-mono font-bold">165</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs py-0.5">
+                                  <span className="font-bold">Crd</span>
+                                  <span className="font-mono font-bold">3</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs py-0.5">
+                                  <span className="font-bold">Crd</span>
+                                  <span className="font-mono font-bold">4</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex justify-between items-center text-[11px] py-0.5">
+                                  <span className="font-bold">Y :</span>
+                                  <span className="font-mono">9095533.595 m</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[11px] py-0.5">
+                                  <span className="font-bold">X :</span>
+                                  <span className="font-mono">4008.540 m</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[11px] py-0.5">
+                                  <span className="font-bold">Z :</span>
+                                  <span className="font-mono">102.350 m</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[11px] py-0.5">
+                                  <span className="font-bold">Cd:</span>
+                                  <span className="font-mono font-bold">LEVC</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            F1=[P-1/2] • F2=[1RO] • F3=[ULTIM] • F4=[BUSC]
                           </div>
                         </div>
                       )}

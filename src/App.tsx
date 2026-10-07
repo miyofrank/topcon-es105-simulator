@@ -139,6 +139,20 @@ export const incrementPointId = (pto: string): string => {
   return `${prefix}${padded}`;
 };
 
+// 10 Slots de Trabajos por defecto Topcon ES-105 (* no exportados a USB)
+const DEFAULT_JOB_SLOTS = [
+  '*PROYECTO01',
+  '*PRUEBA',
+  '*PROYECTO1',
+  '*TOPOGRAFIA',
+  '*CANTERA',
+  '*OBRA_SUR',
+  '*PARQUE',
+  '*JOB08',
+  '*JOB09',
+  '*JOB10'
+];
+
 export default function App() {
   // =========================================================================
   // 2. ARQUITECTURA DE ESTADOS TOPOGRÁFICOS (React State)
@@ -176,14 +190,11 @@ export default function App() {
     PTO: 'BM-1',
   });
 
-  const [jobName, setJobName] = useState<string>('PROYECTO1');
+  const [jobName, setJobName] = useState<string>('PROYECTO01');
+  const [coordJobName, setCoordJobName] = useState<string>('PROYECTO1');
 
-  // Gestión de Trabajos (Menú TRABJ): Trabajos guardados con asterisco por defecto (* no exportado)
-  const [jobsList, setJobsList] = useState<string[]>([
-    '*PROYECTO1',
-    '*JOB02',
-    '*TOPOGRAFIA'
-  ]);
+  // Gestión de Trabajos (Menú TRABJ): Sistema inicializado siempre con 10 slots
+  const [jobsList, setJobsList] = useState<string[]>(DEFAULT_JOB_SLOTS);
   const [jobMenuSelection, setJobMenuSelection] = useState<number>(1);
   const [jobSelectField, setJobSelectField] = useState<number>(0);
   const [selectedJobIdx, setSelectedJobIdx] = useState<number>(0);
@@ -922,11 +933,19 @@ export default function App() {
 
     // 2. Lista de TRABJ
     if (screenState === 'JOB_LIST') {
-      const selected = jobsList[selectedJobIdx] || '*PROYECTO1';
-      setJobName(selected.replace(/^\*/, ''));
-      playLaserBeep();
-      setLcdMessage(`TRABJ SELECCIONADO:\n${selected}`);
+      const selected = jobsList[selectedJobIdx] || '*PROYECTO01';
+      const clean = selected.replace(/^\*/, '');
+      if (jobSelectField === 0) {
+        setJobName(clean);
+        playLaserBeep();
+        setLcdMessage(`TRABJ SELECCIONADO:\n${selected}`);
+      } else {
+        setCoordJobName(clean);
+        playLaserBeep();
+        setLcdMessage(`BUSCA COORD TRABJ:\n${selected}`);
+      }
       setTimeout(() => {
+        setLcdMessage(null);
         setScreenState('JOB_SELECT');
       }, 1000);
       return;
@@ -934,7 +953,7 @@ export default function App() {
 
     // 3. Detalles de TRABJ
     if (screenState === 'JOB_DETAILS') {
-      const clean = inputBuffer.trim() || 'PROYECTO1';
+      const clean = inputBuffer.trim() || 'PROYECTO01';
       const oldClean = jobName.replace(/^\*/, '');
       setJobName(clean);
       setJobsList(prev =>
@@ -943,33 +962,39 @@ export default function App() {
       playLaserBeep();
       setLcdMessage(`DETALLES GUARDADOS:\n${clean}`);
       setTimeout(() => {
+        setLcdMessage(null);
         setScreenState('JOB_MENU');
       }, 1200);
       return;
     }
 
-    // 4. Borrar TRABJ - Selección
-    if (screenState === 'JOB_DELETE_LIST') {
+    // 4. Borrar TRABJ - Selección y confirmación con [ENT]
+    // LÓGICA ESTRICTA: El slot NO se elimina de la lista de 10, sino que recicla su nombre original predeterminado (JOB01..JOB10) sin asterisco.
+    if (screenState === 'JOB_DELETE_LIST' || screenState === 'JOB_DELETE_CONFIRM') {
       const target = jobsList[selectedJobIdx];
       if (target) {
         setJobDeleteTarget(target);
-        setScreenState('JOB_DELETE_CONFIRM');
+        const defaultSlotName = `JOB${String(selectedJobIdx + 1).padStart(2, '0')}`;
+        setJobsList(prev => {
+          const nextList = [...prev];
+          nextList[selectedJobIdx] = defaultSlotName;
+          return nextList;
+        });
+        if (jobName.replace(/^\*/, '') === target.replace(/^\*/, '')) {
+          setJobName(defaultSlotName);
+        }
+        if (coordJobName.replace(/^\*/, '') === target.replace(/^\*/, '')) {
+          setCoordJobName(defaultSlotName);
+        }
+        playLaserBeep();
+        setLcdMessage(`${target}\nBORRADO`);
+        setTimeout(() => {
+          setLcdMessage(null);
+          if (screenState === 'JOB_DELETE_CONFIRM') {
+            setScreenState('JOB_DELETE_LIST');
+          }
+        }, 1200);
       }
-      return;
-    }
-
-    // 4. Borrar TRABJ - Confirmación con [ENT]
-    if (screenState === 'JOB_DELETE_CONFIRM') {
-      setJobsList(prev => {
-        const filtered = prev.filter(j => j !== jobDeleteTarget);
-        return filtered.length > 0 ? filtered : ['*TRAB_01'];
-      });
-      playLaserBeep();
-      setLcdMessage(`${jobDeleteTarget}\nBORRADO`);
-      setTimeout(() => {
-        setSelectedJobIdx(0);
-        setScreenState('JOB_DELETE_LIST');
-      }, 1200);
       return;
     }
 
@@ -1134,6 +1159,8 @@ export default function App() {
     exportarAUSB,
     inputBuffer,
     jobName,
+    coordJobName,
+    jobSelectField,
     jobsList,
     jobMenuSelection,
     selectedJobIdx,
@@ -1485,9 +1512,9 @@ export default function App() {
     // Selección de Trabajo en USB: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
     if (screenState === 'USB_SAVE_JOB') {
       if (fNum === 1) {
-        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+        setSelectedJobIdx(i => (i >= 5 ? i - 5 : (i + 5 < jobsList.length ? i + 5 : i)));
       } else if (fNum === 2) {
-        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+        setSelectedJobIdx(i => (i < 5 ? (i + 5 < jobsList.length ? i + 5 : i) : i - 5));
       } else if (fNum === 3) {
         setScreenState('USB_MENU');
       } else if (fNum === 4) {
@@ -1516,7 +1543,9 @@ export default function App() {
     if (screenState === 'JOB_SELECT') {
       if (fNum === 1) {
         setScreenState('JOB_LIST');
-        setSelectedJobIdx(0);
+        const curTarget = jobSelectField === 0 ? jobName : coordJobName;
+        const curIdx = jobsList.findIndex(j => j.replace(/^\*/, '') === curTarget.replace(/^\*/, ''));
+        setSelectedJobIdx(curIdx >= 0 ? curIdx : 0);
       } else if (fNum === 4) {
         setScreenState('JOB_MENU');
       }
@@ -1526,9 +1555,9 @@ export default function App() {
     // 2. Lista visual de TRABJ: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
     if (screenState === 'JOB_LIST') {
       if (fNum === 1) {
-        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+        setSelectedJobIdx(i => (i >= 5 ? i - 5 : (i + 5 < jobsList.length ? i + 5 : i)));
       } else if (fNum === 2) {
-        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+        setSelectedJobIdx(i => (i < 5 ? (i + 5 < jobsList.length ? i + 5 : i) : i - 5));
       } else if (fNum === 3) {
         setScreenState('JOB_SELECT');
       } else if (fNum === 4) {
@@ -1547,9 +1576,9 @@ export default function App() {
     // 4. Borrar TRABJ - Lista: F1=[ANT], F2=[SIG], F3=[ESC], F4=[ENT]
     if (screenState === 'JOB_DELETE_LIST') {
       if (fNum === 1) {
-        setSelectedJobIdx(i => (i > 0 ? i - 1 : jobsList.length - 1));
+        setSelectedJobIdx(i => (i >= 5 ? i - 5 : (i + 5 < jobsList.length ? i + 5 : i)));
       } else if (fNum === 2) {
-        setSelectedJobIdx(i => (i < jobsList.length - 1 ? i + 1 : 0));
+        setSelectedJobIdx(i => (i < 5 ? (i + 5 < jobsList.length ? i + 5 : i) : i - 5));
       } else if (fNum === 3) {
         setScreenState('JOB_MENU');
       } else if (fNum === 4) {
@@ -1561,20 +1590,9 @@ export default function App() {
     // 4. Borrar TRABJ - Confirmación: F3=[NO], F4=[SI]
     if (screenState === 'JOB_DELETE_CONFIRM') {
       if (fNum === 3) {
-        // [NO]: Cancelar
         setScreenState('JOB_DELETE_LIST');
       } else if (fNum === 4) {
-        // [SI]: Solo si se presiona F4, el trabajo se elimina del array
-        setJobsList(prev => {
-          const filtered = prev.filter(j => j !== jobDeleteTarget);
-          return filtered.length > 0 ? filtered : ['*TRAB_01'];
-        });
-        playLaserBeep();
-        setLcdMessage(`${jobDeleteTarget}\nBORRADO`);
-        setTimeout(() => {
-          setSelectedJobIdx(0);
-          setScreenState('JOB_DELETE_LIST');
-        }, 1200);
+        handleEnterPress();
       }
       return;
     }
@@ -2239,7 +2257,7 @@ export default function App() {
                       {/* 1. SUBMENÚ TRABJ (5 OPCIONES ESTRICTAS) */}
                       {screenState === 'JOB_MENU' && (
                         <div className="space-y-0.5 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                          <div className="font-bold border-b border-neutral-800/30 pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px] font-mono">
                             <span>--- TRABJ ---</span>
                             <span className="text-[10px] text-neutral-800 font-bold">[{jobMenuSelection}/5]</span>
                           </div>
@@ -2260,16 +2278,16 @@ export default function App() {
                                 else if (item.id === 4) setLcdMessage('SALIDA COMUNIC:\nENVIANDO DATOS RS-232C');
                                 else if (item.id === 5) setLcdMessage('CONFIG. COMUNIC:\nBAUD: 1200\nPARIDAD: NONE');
                               }}
-                              className={`px-1.5 py-0.2 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                jobMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] font-mono min-w-0 ${
+                                jobMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10 text-neutral-900 font-semibold'
                               }`}
                             >
-                              <span>{item.label}</span>
-                              {jobMenuSelection === item.id && <span className="text-[10px]">[ENT]</span>}
+                              <span className="truncate">{item.label}</span>
+                              {jobMenuSelection === item.id && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
                             </div>
                           ))}
-                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono font-medium">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
                           </div>
                         </div>
                       )}
@@ -2277,67 +2295,79 @@ export default function App() {
                       {/* 2. ESTADO 'JOB_SELECT': SELECCIONAR TRABJ (DOS LÍNEAS) */}
                       {screenState === 'JOB_SELECT' && (
                         <div className="space-y-1.5 font-mono text-xs px-1">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide text-[11px]">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide text-[11px] font-mono">
                             --- SELEC TRABJ ---
                           </div>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-0.5">
                             <div
                               onClick={() => setJobSelectField(0)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 ${
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 font-mono text-xs ${
                                 jobSelectField === 0
                                   ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
                                   : 'bg-black/5 border-transparent text-neutral-950 font-bold'
                               }`}
                             >
                               <span className="shrink-0">Selec TRABJ:</span>
-                              <span className="font-mono truncate max-w-[60%] overflow-hidden text-right">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                              <span className="font-mono truncate max-w-[60%] overflow-hidden text-right">
+                                {jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || (jobName.startsWith('JOB') ? jobName : `*${jobName}`)}
+                              </span>
                             </div>
                             <div
                               onClick={() => setJobSelectField(1)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 ${
+                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 font-mono text-xs ${
                                 jobSelectField === 1
                                   ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
                                   : 'bg-black/5 border-transparent text-neutral-950 font-bold'
                               }`}
                             >
                               <span className="shrink-0">Busca Coord TRABJ:</span>
-                              <span className="font-mono truncate max-w-[50%] overflow-hidden text-right">{jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || `*${jobName}`}</span>
+                              <span className="font-mono truncate max-w-[50%] overflow-hidden text-right">
+                                {jobsList.find(j => j.replace(/^\*/, '') === coordJobName.replace(/^\*/, '')) || (coordJobName.startsWith('JOB') ? coordJobName : `*${coordJobName}`)}
+                              </span>
                             </div>
                           </div>
-                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-sans font-bold">
+                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-mono font-bold">
                             Presione [F1 LIST] para ver lista de trabajos
                           </div>
                         </div>
                       )}
 
                       {/* 2. ESTADO 'JOB_LIST': LISTA VISUAL DE TRABAJOS CON ASTERISCO */}
-                      {screenState === 'JOB_LIST' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>LISTA TRABJ</span>
-                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
+                      {screenState === 'JOB_LIST' && (() => {
+                        const currentPage = Math.floor(selectedJobIdx / 5);
+                        const visibleJobs = jobsList.slice(currentPage * 5, (currentPage + 1) * 5);
+                        return (
+                          <div className="space-y-1 font-mono text-xs px-1">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 font-mono">
+                              <span>LISTA TRABJ</span>
+                              <span className="text-[10px] font-bold">[{currentPage + 1}/2]</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              {visibleJobs.map((job, localIdx) => {
+                                const globalIdx = currentPage * 5 + localIdx;
+                                const isSelected = selectedJobIdx === globalIdx;
+                                return (
+                                  <div
+                                    key={job + globalIdx}
+                                    onClick={() => setSelectedJobIdx(globalIdx)}
+                                    className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
+                                      isSelected
+                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                        : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                    }`}
+                                  >
+                                    <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
+                              * No exportado a USB - [ENT] Seleccionar
+                            </div>
                           </div>
-                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
-                            {jobsList.map((job, idx) => (
-                              <div
-                                key={job + idx}
-                                onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
-                                  selectedJobIdx === idx
-                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
-                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
-                                }`}
-                              >
-                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
-                              </div>
-                            ))}
-                          </div>
-                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
-                            * No exportado a USB • [ENT] Seleccionar
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* 3. ESTADO 'JOB_DETAILS': DETALLES DE TRABJ CON ESCAL: 1.00000000 */}
                       {screenState === 'JOB_DETAILS' && (
@@ -2362,33 +2392,41 @@ export default function App() {
                       )}
 
                       {/* 4. ESTADO 'JOB_DELETE_LIST': SELECCIONAR TRABAJO PARA BORRAR */}
-                      {screenState === 'JOB_DELETE_LIST' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 text-rose-950">
-                            <span>BORRAR TRABJ</span>
-                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
+                      {screenState === 'JOB_DELETE_LIST' && (() => {
+                        const currentPage = Math.floor(selectedJobIdx / 5);
+                        const visibleJobs = jobsList.slice(currentPage * 5, (currentPage + 1) * 5);
+                        return (
+                          <div className="space-y-1 font-mono text-xs px-1">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 font-mono text-rose-950">
+                              <span>BORRAR TRABJ</span>
+                              <span className="text-[10px] font-bold">[{currentPage + 1}/2]</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              {visibleJobs.map((job, localIdx) => {
+                                const globalIdx = currentPage * 5 + localIdx;
+                                const isSelected = selectedJobIdx === globalIdx;
+                                return (
+                                  <div
+                                    key={job + globalIdx}
+                                    onClick={() => setSelectedJobIdx(globalIdx)}
+                                    className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
+                                      isSelected
+                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                        : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                    }`}
+                                  >
+                                    <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
+                              Seleccione trabajo y pulse [ENT] para confirmar
+                            </div>
                           </div>
-                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
-                            {jobsList.map((job, idx) => (
-                              <div
-                                key={job + idx}
-                                onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
-                                  selectedJobIdx === idx
-                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
-                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
-                                }`}
-                              >
-                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
-                              </div>
-                            ))}
-                          </div>
-                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
-                            Seleccione trabajo y pulse [ENT] para confirmar
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* 4. ESTADO 'JOB_DELETE_CONFIRM': AVISO DE CONFIRMACIÓN CON [NO] Y [SI] */}
                       {screenState === 'JOB_DELETE_CONFIRM' && (
@@ -2935,33 +2973,41 @@ export default function App() {
                       )}
 
                       {/* 3. ESTADO 'USB_SAVE_JOB': SELECCIONAR TRABAJO PARA EXPORTAR */}
-                      {screenState === 'USB_SAVE_JOB' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>SELEC TRABAJO USB</span>
-                            <span className="text-[10px] font-bold">[{selectedJobIdx + 1}/{jobsList.length}]</span>
+                      {screenState === 'USB_SAVE_JOB' && (() => {
+                        const currentPage = Math.floor(selectedJobIdx / 5);
+                        const visibleJobs = jobsList.slice(currentPage * 5, (currentPage + 1) * 5);
+                        return (
+                          <div className="space-y-1 font-mono text-xs px-1">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 font-mono">
+                              <span>SELEC TRABAJO USB</span>
+                              <span className="text-[10px] font-bold">[{currentPage + 1}/2]</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              {visibleJobs.map((job, localIdx) => {
+                                const globalIdx = currentPage * 5 + localIdx;
+                                const isSelected = selectedJobIdx === globalIdx;
+                                return (
+                                  <div
+                                    key={job + globalIdx}
+                                    onClick={() => setSelectedJobIdx(globalIdx)}
+                                    className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
+                                      isSelected
+                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                        : 'hover:bg-black/10 text-neutral-900 font-semibold'
+                                    }`}
+                                  >
+                                    <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
+                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
+                              * No exportado a USB - [ENT] Seleccionar Trabajo
+                            </div>
                           </div>
-                          <div className="space-y-0.5 max-h-[110px] overflow-hidden">
-                            {jobsList.map((job, idx) => (
-                              <div
-                                key={job + idx}
-                                onClick={() => setSelectedJobIdx(idx)}
-                                className={`px-2 py-1 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 ${
-                                  selectedJobIdx === idx
-                                    ? 'bg-neutral-900 text-[#9CA3AF] font-black'
-                                    : 'hover:bg-black/10 text-neutral-900 font-semibold'
-                                }`}
-                              >
-                                <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                {selectedJobIdx === idx && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
-                              </div>
-                            ))}
-                          </div>
-                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
-                            * No exportado • [ENT] Seleccionar Trabajo
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* 3. ESTADO 'USB_FORMAT': SELECCIÓN DE FORMATOS GTS / SSS */}
                       {screenState === 'USB_FORMAT' && (

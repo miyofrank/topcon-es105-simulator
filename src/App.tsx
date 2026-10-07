@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Battery,
+  BatteryLow,
+  BatteryMedium,
   Sliders,
   Volume2,
   VolumeX,
@@ -69,7 +71,8 @@ type EdmMode = 'prism' | 'sheet' | 'non_prism';
 // ESTADOS ESTRICTOS DE LA MÁQUINA LCD TOPCON ES-105:
 // 'TILT'           : Compensador Digital de arranque (Nivel Electrónico X/Y). F1=[OK]
 // 'ROOT'           : Pantalla Raíz del equipo (ES-105, S/N, Ver, Tra). F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
-// 'MED'            : Pantalla de Medición (G-0, H-0, V-0, PPm 11). Pág 1/2/3 alternadas con [FUNC]
+// 'MED'            : Pantalla Principal de Medición (HD, AZ Rango exced., HA-D, PPm). Pág 1/2/3 con [FUNC]
+// 'COMPEN'         : Pantalla AZ-0 Compensador ComPen interactivo (burbuja arrastrable con ratón)
 // 'MAIN'           : Pantalla de compatibilidad
 // 'COORD_MENU'     : Menú COORD (1. Occ.Orien., 2. Observación)
 // 'OCC_ORIEN'      : Estacionamiento (Y0, X0, Z0, HI, Cd, Operador...). F1=[CARG], F3=[E.RXYZ], F4=[REG]
@@ -83,6 +86,7 @@ type ScreenState =
   | 'TILT'
   | 'ROOT'
   | 'MED'
+  | 'COMPEN'
   | 'MAIN'
   | 'COORD_MENU'
   | 'OCC_ORIEN'
@@ -123,6 +127,15 @@ export const formatDMS = (deg: number): string => {
   const finalS = s === 60 ? 0 : s;
   const finalD = finalM === 60 ? d + 1 : d;
   return `${String(finalD).padStart(3, '0')}°${String(finalM % 60).padStart(2, '0')}'${String(finalS).padStart(2, '0')}"`;
+};
+
+// Formato sexagesimal corto para el Compensador Electrónico ComPen (-X' YY")
+export const formatTiltDMS = (seconds: number): string => {
+  const sign = seconds < 0 ? '-' : ' ';
+  const absSec = Math.abs(seconds);
+  const m = Math.floor(absSec / 60);
+  const s = absSec % 60;
+  return `${sign}${m}' ${String(s).padStart(2, '0')}"`;
 };
 
 // Función de auto-incremento inteligente del PTO
@@ -287,6 +300,71 @@ export default function App() {
   const [isOriented, setIsOriented] = useState<boolean>(true);
   const [isAlphaKeyboardOpen, setIsAlphaKeyboardOpen] = useState<boolean>(false);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState<boolean>(false);
+
+  // Estados para pantalla MED y Compensador ComPen (AZ-0)
+  const [isMeasuringFast, setIsMeasuringFast] = useState<boolean>(false);
+  const [showTaraSoftkey, setShowTaraSoftkey] = useState<boolean>(false);
+  const [compenX, setCompenX] = useState<number>(-167); // Representa -2' 47"
+  const [compenY, setCompenY] = useState<number>(245);  // > 210" -> * * * *
+  const [isDraggingBubble, setIsDraggingBubble] = useState<boolean>(false);
+  const compenSvgRef = useRef<SVGSVGElement | null>(null);
+
+  // Posición de la burbuja calculada para la diana ComPen (centro en 50, 50, radio máx 36px)
+  const bubblePos = useMemo(() => {
+    const dx = compenX / 8;
+    const dy = -compenY / 8;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxR = 36;
+    if (dist > maxR && dist > 0) {
+      return {
+        x: 50 + (dx / dist) * maxR,
+        y: 50 + (dy / dist) * maxR
+      };
+    }
+    return {
+      x: 50 + dx,
+      y: 50 + dy
+    };
+  }, [compenX, compenY]);
+
+  const updateBubbleFromPointer = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    const svg = compenSvgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const scale = 100 / rect.width;
+    let dx = (e.clientX - rect.left) * scale - 50;
+    let dy = (e.clientY - rect.top) * scale - 50;
+
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxR = 36;
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+
+    const newSecX = Math.round(dx * 8);
+    const newSecY = Math.round(-dy * 8);
+
+    setCompenX(newSecX);
+    setCompenY(newSecY);
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    setIsDraggingBubble(true);
+    updateBubbleFromPointer(e);
+  }, [updateBubbleFromPointer]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    if (isDraggingBubble) {
+      updateBubbleFromPointer(e);
+    }
+  }, [isDraggingBubble, updateBubbleFromPointer]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    (e.target as Element).releasePointerCapture?.(e.pointerId);
+    setIsDraggingBubble(false);
+  }, []);
 
   // Síntesis de Audio Web Audio API (Zumbador y Láser EDM)
   const playBeep = useCallback((freq = 1400, duration = 0.08, type: OscillatorType = 'sine') => {
@@ -705,7 +783,7 @@ export default function App() {
 
     // Acceso numérico rápido desde ROOT
     if (screenState === 'ROOT') {
-      if (key === '1') { setScreenState('OBS'); setActiveField(0); }
+      if (key === '1') { setScreenState('MED'); setMedPage(1); }
       else if (key === '3') { setScreenState('DATO_MENU'); setMenuSelection(1); }
       return;
     }
@@ -772,6 +850,7 @@ export default function App() {
     if (
       screenState === 'TILT' ||
       screenState === 'MED' ||
+      screenState === 'COMPEN' ||
       screenState === 'MAIN' ||
       screenState === 'KNOWN_DEL' ||
       screenState === 'KNOWN_DEL_CONFIRM' ||
@@ -815,6 +894,12 @@ export default function App() {
     if (screenState === 'ROOT') {
       setScreenState('MED');
       setMedPage(1);
+      return;
+    }
+
+    // Pantalla COMPEN (Compensador AZ-0)
+    if (screenState === 'COMPEN') {
+      setScreenState('MED');
       return;
     }
 
@@ -1191,6 +1276,8 @@ export default function App() {
       return;
     } else if (screenState === 'MED') {
       setScreenState('ROOT');
+    } else if (screenState === 'COMPEN') {
+      setScreenState('MED');
     } else if (screenState === 'MAIN') {
       setScreenState('ROOT');
     } else if (screenState === 'DATO_MENU') {
@@ -1384,12 +1471,24 @@ export default function App() {
       return;
     }
 
+    // Estado COMPEN (Compensador AZ-0 interactivo)
+    if (screenState === 'COMPEN') {
+      if (fNum === 1) {
+        // [OK] -> Regresa a la pantalla MED
+        setScreenState('MED');
+      } else if (fNum === 2) {
+        // [PLGETT]
+        setLcdMessage('PLGETT: PLOMADA LÁSER\nNIVEL CALIBRADO');
+      }
+      return;
+    }
+
     // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[], F3=[DATO], F4=[CNFG]
     if (screenState === 'ROOT') {
       if (fNum === 1) {
-        // F1=[OBS] -> va a Observación
-        setScreenState('OBS');
-        setActiveField(0);
+        // F1=[OBS] -> Acceso directo a la pantalla de Medición MED (Pág 1)
+        setScreenState('MED');
+        setMedPage(1);
       } else if (fNum === 3) {
         // F3=[DATO] -> menú DATO
         setScreenState('DATO_MENU');
@@ -1403,42 +1502,55 @@ export default function App() {
 
     // 2. ESTADO MED (Medición): Pág 1, Pág 2, Pág 3
     if (screenState === 'MED') {
+      if (showTaraSoftkey) {
+        if (fNum === 4) {
+          playLaserBeep();
+          setShowTaraSoftkey(false);
+          setIsMeasuringFast(false);
+          setLcdMessage('TARA APLICADA');
+        }
+        return;
+      }
+
       if (medPage === 1) {
-        // Pág 1: [MENU] [COMP] [ANG-H] [EDM]
+        // Pág 1: [MENU] (F1), [COMP] (F2), [RNG H] (F3), [EDM] (F4)
         if (fNum === 1) {
-          setScreenState('COORD_MENU');
-          setMenuSelection(1);
+          setScreenState('ROOT');
         } else if (fNum === 2) {
-          setScreenState('TILT');
+          // [COMP] -> Pantalla del Compensador ComPen
+          setScreenState('COMPEN');
         } else if (fNum === 3) {
-          setLcdMessage(`ÁNGULO H RETENIDO:\n${formatDMS(envHD)}`);
+          setLcdMessage(`RANGO H RETENIDO:\n${formatDMS(envHD)}`);
         } else if (fNum === 4) {
           handleShiftPress();
         }
       } else if (medPage === 2) {
-        // Pág 2: [OBS] [USB] [DATO] [CNFG]
-        if (fNum === 1) {
-          // [OBS] -> va a Observación
-          setScreenState('OBS');
-          setActiveField(0);
-        } else if (fNum === 2) {
-          // [USB] -> Menú USB
-          setScreenState('USB_MENU');
-          setUsbMenuSelection(1);
-        } else if (fNum === 3) {
-          // [DATO] -> Menú DATO
-          setScreenState('DATO_MENU');
-          setMenuSelection(1);
-        } else if (fNum === 4) {
-          // [CNFG] -> Configuración
-          setLcdMessage('CONFIGURACIÓN ES-105\nUNIDAD: DEG/METRO\nEDM: PRISMA');
-        }
-      } else {
-        // Pág 3: [MED] [GHV] [AZ-0] [COORD]
+        // Pág 2: [MDR] (F1), [DESPLZ] (F2), [TOPO] (F3), [REPL] (F4)
         if (fNum === 1) {
           setIsMeasuring(true);
-          setTimeout(() => { setIsMeasuring(false); playLaserBeep(); }, 350);
+          playLaserBeep();
+          setTimeout(() => { setIsMeasuring(false); }, 350);
         } else if (fNum === 2) {
+          setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+        } else if (fNum === 3) {
+          setScreenState('OBS');
+          setActiveField(0);
+        } else if (fNum === 4) {
+          setLcdMessage('MODO REPLANTEO\nSELECCIONE PTO');
+        }
+      } else {
+        // Pág 3: [MED] (F1), [G V] (F2), [AZ-0] (F3), [COORD] (F4)
+        if (fNum === 1) {
+          // [MED]: Bip, parpadeo srapido momentáneo, y softkeys temporales [ , , , TARA]
+          playBeep(1800, 0.12);
+          setIsMeasuringFast(true);
+          setShowTaraSoftkey(true);
+          setTimeout(() => {
+            setIsMeasuringFast(false);
+            setShowTaraSoftkey(false);
+          }, 1800);
+        } else if (fNum === 2) {
+          // [G V]
           const radV = envV * (Math.PI / 180);
           const az = ((azimutInicial + envHD) % 360) * (Math.PI / 180);
           const dh = envSD * Math.sin(radV);
@@ -1447,10 +1559,10 @@ export default function App() {
           const z = station.Z + station.HI + envSD * Math.cos(radV) - target.HR;
           setLcdMessage(`COORD EN VIVO:\nN: ${n.toFixed(3)}\nE: ${e.toFixed(3)}\nZ: ${z.toFixed(3)}`);
         } else if (fNum === 3) {
-          setEnvHD(0);
-          setLcdMessage('ÁNGULO HORIZONTAL\nSETEADO A 0°');
+          // [AZ-0] -> Acceso a Pantalla ComPen interactiva
+          setScreenState('COMPEN');
         } else if (fNum === 4) {
-          // En la Pág 3, si el usuario pulsa F4 (COORD), el estado pasa a COORD_MENU
+          // [COORD] -> Menú de Coordenadas
           setScreenState('COORD_MENU');
           setMenuSelection(1);
         }
@@ -1779,6 +1891,7 @@ export default function App() {
     screenState,
     medPage,
     mainPage,
+    showTaraSoftkey,
     commitCurrentField,
     handleEnterPress,
     handleShiftPress,
@@ -1864,12 +1977,15 @@ export default function App() {
     switch (screenState) {
       case 'TILT':
         return ['OK', '', '', 'TILT'];
+      case 'COMPEN':
+        return ['OK', 'PLGETT', '', ''];
       case 'ROOT':
         return ['OBS', '', 'DATO', 'CNFG'];
       case 'MED':
-        if (medPage === 1) return ['MENU', 'COMP', 'ANG-H', 'EDM'];
-        if (medPage === 2) return ['OBS', 'USB', 'DATO', 'CNFG'];
-        return ['MED', 'GHV', 'AZ-0', 'COORD'];
+        if (showTaraSoftkey) return ['', '', '', 'TARA'];
+        if (medPage === 1) return ['MENU', 'COMP', 'RNG H', 'EDM'];
+        if (medPage === 2) return ['MDR', 'DESPLZ', 'TOPO', 'REPL'];
+        return ['MED', 'G V', 'AZ-0', 'COORD'];
       case 'MAIN':
         return mainPage === 1
           ? ['DIST', 'SHV', 'OSET', 'COORD']
@@ -2060,7 +2176,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-neutral-800/40 pb-1 text-[11px] font-bold tracking-wider">
                   <div className="flex items-center gap-1.5">
                     <span className="bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 rounded text-[10px]">
-                      {screenState === 'TILT'
+                      {screenState === 'TILT' || screenState === 'COMPEN'
                         ? 'TIL'
                         : screenState === 'ROOT'
                         ? 'ROOT'
@@ -2096,10 +2212,22 @@ export default function App() {
                     <span className="text-[9px] bg-neutral-800/20 px-1 rounded font-mono font-bold truncate max-w-[80px]" title={`Proyecto: ${jobName}`}>
                       {jobName}
                     </span>
-                    <div className="flex items-center gap-1 font-bold text-neutral-950" title="Batería 100%">
-                      <Battery size={13} className="stroke-[2.5]" />
-                      <span className="text-[10px]">100%</span>
-                    </div>
+                    {(() => {
+                      const isMed = screenState === 'MED';
+                      const pct = isMed ? (medPage === 1 ? '20%' : '70%') : '100%';
+                      return (
+                        <div className="flex items-center gap-1 font-bold text-neutral-950" title={`Batería ${pct}`}>
+                          {isMed && medPage === 1 ? (
+                            <BatteryLow size={13} className="stroke-[2.5]" />
+                          ) : isMed ? (
+                            <BatteryMedium size={13} className="stroke-[2.5]" />
+                          ) : (
+                            <Battery size={13} className="stroke-[2.5]" />
+                          )}
+                          <span className="text-[10px]">{pct}</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -2172,34 +2300,132 @@ export default function App() {
 
                       {/* 2. ESTADO 'MED': PANTALLA DE MEDICIÓN CON PAGINACIÓN P1, P2, P3 */}
                       {screenState === 'MED' && (
-                        <div className="space-y-1 font-mono text-[13px]">
-                          <div className="flex justify-between items-center text-xs font-black border-b border-neutral-800/30 pb-0.5">
+                        <div className="flex flex-col justify-between h-full font-mono text-[13px] px-1 py-0.5">
+                          {/* Cabecera: MED (arriba), srapido (parpadeando momentáneamente) y PPm (centro superior derecho) */}
+                          <div className="flex justify-between items-center border-b border-neutral-800/30 pb-0.5">
                             <span className="text-[13px] tracking-wider text-neutral-950 font-black">MED</span>
-                            <div className="flex items-center gap-2 font-bold">
-                              <span className="text-[11px] text-neutral-800">PPm 11</span>
-                              <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 rounded font-mono font-bold">
+                            <div className="flex items-center gap-2">
+                              {isMeasuringFast && (
+                                <span className="animate-pulse text-[11px] font-black text-neutral-950 tracking-wider">
+                                  srapido
+                                </span>
+                              )}
+                              <span className="text-[11px] font-bold text-neutral-800">PPm</span>
+                              <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded font-bold">
                                 P{medPage}
                               </span>
                             </div>
                           </div>
-                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
-                            <span className="font-bold">G-0 :</span>
-                            <span className="font-black text-right">{envSD.toFixed(3)} m</span>
+
+                          {/* Contenido principal alineado a la izquierda con espaciado en blanco a la derecha */}
+                          <div className="space-y-2 py-1.5 text-left font-bold text-neutral-950">
+                            <div>HD</div>
+                            <div className="tracking-tight text-neutral-900">AZ Rango exced.</div>
+                            <div>HA-D</div>
                           </div>
-                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
-                            <span className="font-bold">H-0 :</span>
-                            <span className="font-black text-right">{formatDMS(envHD)}</span>
-                          </div>
-                          <div className="flex justify-between items-center bg-black/5 px-1.5 py-0.5 rounded">
-                            <span className="font-bold">V-0 :</span>
-                            <span className="font-black text-right">{formatDMS(envV)}</span>
-                          </div>
-                          <div className="text-[10px] text-neutral-700 flex justify-between font-sans font-bold pt-0.5">
+
+                          {/* Pie informativo sutil */}
+                          <div className="text-[9.5px] text-neutral-700 flex justify-between font-mono pt-0.5 border-t border-neutral-800/20">
                             <span>Pág {medPage}/3 (FUNC)</span>
                             <span>ESC = ROOT</span>
                           </div>
                         </div>
                       )}
+
+                      {/* ESTADO 'COMPEN': PANTALLA AZ-0 SIMULADOR DEL MUNDO FÍSICO (ComPen) */}
+                      {screenState === 'COMPEN' && (() => {
+                        const xDisplay = Math.abs(compenX) > 210 ? '* * * *' : formatTiltDMS(compenX);
+                        const yDisplay = Math.abs(compenY) > 210 ? '* * * *' : formatTiltDMS(compenY);
+
+                        return (
+                          <div className="flex flex-col justify-between h-full font-mono text-xs select-none">
+                            {/* Cabecera superior izquierda: ComPen */}
+                            <div className="flex justify-between items-center border-b border-neutral-800/30 pb-0.5 px-0.5">
+                              <span className="font-black text-sm text-neutral-950 tracking-wider">ComPen</span>
+                              <span className="text-[10px] text-neutral-800 font-bold">Nivel Electrónico</span>
+                            </div>
+
+                            {/* Cuerpo principal en 2 columnas: Datos textuales a la izquierda, Gráfico interactivo a la derecha */}
+                            <div className="flex items-center justify-between gap-2 px-1 flex-1 py-1">
+                              {/* Columna Izquierda: Datos textuales */}
+                              <div className="flex flex-col justify-center space-y-3 pl-1 text-[13px] font-bold text-neutral-950 leading-tight">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-black text-neutral-900 w-3">X</span>
+                                  <span className="font-mono tracking-wider">{xDisplay}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="font-black text-neutral-900 w-3">Y</span>
+                                  <span className="font-mono tracking-wider">{yDisplay}</span>
+                                </div>
+                              </div>
+
+                              {/* Columna Derecha: Gráfico con dos círculos concéntricos cruzados por ejes X e Y, y burbuja negra arrastrable */}
+                              <div className="flex flex-col items-center justify-center pr-2">
+                                <div className="relative p-1">
+                                  <svg
+                                    ref={compenSvgRef}
+                                    viewBox="0 0 100 100"
+                                    className="w-24 h-24 touch-none cursor-grab active:cursor-grabbing select-none"
+                                    onPointerDown={handlePointerDown}
+                                    onPointerMove={handlePointerMove}
+                                    onPointerUp={handlePointerUp}
+                                    onPointerCancel={handlePointerUp}
+                                  >
+                                    {/* Fondo del sensor */}
+                                    <circle cx="50" cy="50" r="44" fill="#000000" fillOpacity="0.04" />
+
+                                    {/* Eje X (horizontal) */}
+                                    <line x1="8" y1="50" x2="92" y2="50" stroke="#171717" strokeWidth="1" strokeDasharray="3 3" />
+                                    {/* Eje Y (vertical) */}
+                                    <line x1="50" y1="8" x2="50" y2="92" stroke="#171717" strokeWidth="1" strokeDasharray="3 3" />
+
+                                    {/* Círculo concéntrico exterior */}
+                                    <circle
+                                      cx="50"
+                                      cy="50"
+                                      r="38"
+                                      fill="none"
+                                      stroke="#171717"
+                                      strokeWidth="1.8"
+                                    />
+
+                                    {/* Círculo concéntrico interior */}
+                                    <circle
+                                      cx="50"
+                                      cy="50"
+                                      r="18"
+                                      fill="none"
+                                      stroke="#171717"
+                                      strokeWidth="1.2"
+                                    />
+
+                                    {/* Punto central de calibración */}
+                                    <circle cx="50" cy="50" r="1.5" fill="#171717" />
+
+                                    {/* Punto negro (burbuja) arrastrable con el ratón */}
+                                    <circle
+                                      cx={bubblePos.x}
+                                      cy={bubblePos.y}
+                                      r="6"
+                                      fill="#0a0a0a"
+                                      className="drop-shadow-sm transition-transform duration-75"
+                                    />
+                                  </svg>
+                                </div>
+                                <span className="text-[9px] text-neutral-700 font-sans font-medium">
+                                  Arrastra la burbuja
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Pie informativo */}
+                            <div className="text-[9.5px] text-neutral-700 flex justify-between font-mono pt-0.5 border-t border-neutral-800/20 px-0.5">
+                              <span>F1=[OK] Guardar</span>
+                              <span>[ESC] Volver</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* ESTADO 'MAIN': PANTALLA PRINCIPAL (Pág 1 / Pág 2 - compatibilidad) */}
                       {screenState === 'MAIN' && (

@@ -90,6 +90,10 @@ type ScreenState =
   | 'MAIN'
   | 'COORD_MENU'
   | 'OCC_ORIEN'
+  | 'OCC_LOAD_LIST'
+  | 'OCC_LOAD_SEARCH'
+  | 'OCC_ACLER'
+  | 'OCC_TRISEC'
   | 'ERXYZ'
   | 'CHECK_BS'
   | 'CHECK_BS_DIST'
@@ -175,7 +179,7 @@ export default function App() {
     E: 1000.0,
     Z: 100.0,
     PTO: 'EST-1',
-    HI: 1.55,
+    HI: 1.471,
   });
 
   const [stationAtm, setStationAtm] = useState<StationAtm>({
@@ -308,6 +312,27 @@ export default function App() {
   const [compenY, setCompenY] = useState<number>(245);  // > 210" -> * * * *
   const [isDraggingBubble, setIsDraggingBubble] = useState<boolean>(false);
   const compenSvgRef = useRef<SVGSVGElement | null>(null);
+
+  // Estados para Estacionamiento (Occ.Orien), Carga de Puntos (CARG), ACLE.R y TRISEC
+  const [occPage, setOccPage] = useState<1 | 2>(1);
+  const [selectedOccLoadIdx, setSelectedOccLoadIdx] = useState<number>(0);
+  const [occSearchBuffer, setOccSearchBuffer] = useState<string>('');
+  const [trisecSelection, setTrisecSelection] = useState<number>(2); // 1. A, 2. YXZ, 3. Cota, 4. Ajustes
+
+  const occLoadPoints = useMemo<TopoPoint[]>(() => {
+    const defaultPts: TopoPoint[] = [
+      { PTO: 'PTO 1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'BASE' },
+      { PTO: 'PTO 2', N: 1025.5, E: 1018.2, Z: 101.4, CD: 'REF' }
+    ];
+    const userPts = [...points, ...knownPoints];
+    const combined = [...defaultPts];
+    for (const p of userPts) {
+      if (!combined.some(c => c.PTO.toLowerCase() === p.PTO.toLowerCase())) {
+        combined.push(p);
+      }
+    }
+    return combined;
+  }, [points, knownPoints]);
 
   // Posición de la burbuja calculada para la diana ComPen (centro en 50, 50, radio máx 36px)
   const bubblePos = useMemo(() => {
@@ -443,6 +468,7 @@ export default function App() {
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
     if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
+    if (screenState === 'OCC_LOAD_SEARCH') return true;
     if (screenState === 'OBS') return true; // Tanto PTO como Cd admiten alfanumérico
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
@@ -533,6 +559,64 @@ export default function App() {
     setInputBuffer('');
     playLaserBeep();
   }, [activeField, inputBuffer, knownCoordsInput, playLaserBeep]);
+
+  // Cargar punto seleccionado en Occ.Orien desde la lista
+  const cargarPuntoSeleccionado = useCallback(() => {
+    const pt = occLoadPoints[selectedOccLoadIdx] || occLoadPoints[0];
+    if (pt) {
+      playLaserBeep();
+      setStation(s => ({
+        ...s,
+        N: pt.N,
+        E: pt.E,
+        Z: pt.Z,
+        PTO: pt.PTO
+      }));
+      if (pt.CD) {
+        setStationAtm(a => ({ ...a, CD: pt.CD }));
+      }
+      setLcdMessage(`PTO ${pt.PTO}\nCARGADO`);
+      setTimeout(() => {
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+      }, 900);
+    }
+  }, [occLoadPoints, selectedOccLoadIdx, playLaserBeep]);
+
+  // Confirmar búsqueda de punto (Criteria:Completo Direct.: _)
+  const handleOccSearchConfirm = useCallback(() => {
+    const q = occSearchBuffer.trim().toLowerCase();
+    if (!q) {
+      setLcdMessage('no hay datos');
+      return;
+    }
+    const found = occLoadPoints.find(p => {
+      const ptoLower = p.PTO.toLowerCase();
+      return ptoLower === q || ptoLower === `pto ${q}` || ptoLower.replace(/^pto\s*/, '') === q;
+    });
+
+    if (!found) {
+      // Si el punto no existe al dar OK, mostrar alert temporal "no hay datos"
+      setLcdMessage('no hay datos');
+    } else {
+      playLaserBeep();
+      setStation(s => ({
+        ...s,
+        N: found.N,
+        E: found.E,
+        Z: found.Z,
+        PTO: found.PTO
+      }));
+      if (found.CD) {
+        setStationAtm(a => ({ ...a, CD: found.CD }));
+      }
+      setLcdMessage(`PTO ${found.PTO}\nCARGADO`);
+      setTimeout(() => {
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+      }, 900);
+    }
+  }, [occSearchBuffer, occLoadPoints, playLaserBeep]);
 
   // =========================================================================
   // 5. ACCIÓN ESPECIAL: DESCARGA AUTOMÁTICA A USB (DESDE EL FLUJO USB REAL)
@@ -765,11 +849,13 @@ export default function App() {
     }
   }, [playBeep, isCurrentFieldAlpha]);
 
-  // Tecla física [FUNC]: Alterna páginas de MED (Pág 1/2/3) o Pantalla Principal (Pág 1 / Pág 2)
+  // Tecla física [FUNC]: Alterna páginas de MED (Pág 1/2/3), Estacionamiento (Pág 1 / Pág 2) o Pantalla Principal (Pág 1 / Pág 2)
   const handleFuncPress = useCallback(() => {
     playBeep(1200, 0.05);
     if (screenState === 'MED') {
       setMedPage(p => (p === 1 ? 2 : p === 2 ? 3 : 1));
+    } else if (screenState === 'OCC_ORIEN') {
+      setOccPage(p => (p === 1 ? 2 : 1));
     } else if (screenState === 'MAIN') {
       setMainPage(p => (p === 1 ? 2 : 1));
     } else {
@@ -790,8 +876,29 @@ export default function App() {
 
     // Selección numérica en menú COORD
     if (screenState === 'COORD_MENU') {
-      if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); }
+      if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); setOccPage(1); }
       else if (key === '2') { setScreenState('OBS'); setActiveField(0); }
+      return;
+    }
+
+    // Manejo de buffer de búsqueda en OCC_LOAD_SEARCH
+    if (screenState === 'OCC_LOAD_SEARCH') {
+      if (key === 'BS') {
+        setOccSearchBuffer(prev => prev.slice(0, -1));
+      } else {
+        setOccSearchBuffer(prev => prev + key);
+      }
+      return;
+    }
+
+    // Selección numérica en menú TRISEC
+    if (screenState === 'OCC_TRISEC') {
+      if (key === '1') setTrisecSelection(1);
+      else if (key === '2') {
+        // Al seleccionar YXZ con Enter o tecla 2, retorna a la gráfica ComPen
+        setScreenState('COMPEN');
+      } else if (key === '3') setTrisecSelection(3);
+      else if (key === '4') setTrisecSelection(4);
       return;
     }
 
@@ -852,6 +959,8 @@ export default function App() {
       screenState === 'MED' ||
       screenState === 'COMPEN' ||
       screenState === 'MAIN' ||
+      screenState === 'OCC_LOAD_LIST' ||
+      screenState === 'OCC_ACLER' ||
       screenState === 'KNOWN_DEL' ||
       screenState === 'KNOWN_DEL_CONFIRM' ||
       screenState === 'KNOWN_VIEW' ||
@@ -920,9 +1029,39 @@ export default function App() {
       if (menuSelection === 1) {
         setScreenState('OCC_ORIEN');
         setActiveField(0);
+        setOccPage(1);
       } else {
         setScreenState('OBS');
         setActiveField(0);
+      }
+      return;
+    }
+
+    // Carga de puntos en Occ.Orien
+    if (screenState === 'OCC_LOAD_LIST') {
+      cargarPuntoSeleccionado();
+      return;
+    }
+
+    // Búsqueda de punto
+    if (screenState === 'OCC_LOAD_SEARCH') {
+      handleOccSearchConfirm();
+      return;
+    }
+
+    // Pantalla ACLE.R: retorna a ComPen
+    if (screenState === 'OCC_ACLER') {
+      setScreenState('COMPEN');
+      return;
+    }
+
+    // Pantalla TRISEC
+    if (screenState === 'OCC_TRISEC') {
+      if (trisecSelection === 2) {
+        // Al seleccionar YXZ con Enter, retorna a la gráfica ComPen
+        setScreenState('COMPEN');
+      } else {
+        setLcdMessage('TRISEC SELECCIONADA');
       }
       return;
     }
@@ -1157,10 +1296,17 @@ export default function App() {
 
     // Formulario de Estacionamiento (12 campos con scroll)
     if (screenState === 'OCC_ORIEN') {
+      commitCurrentField();
       if (activeField < 11) {
-        setActiveField(f => f + 1);
+        setActiveField(f => {
+          const next = f + 1;
+          if (next >= 4) setOccPage(2);
+          else setOccPage(1);
+          return next;
+        });
       } else {
         setActiveField(0);
+        setOccPage(1);
         setLcdMessage('DATOS ESTACIÓN\nGUARDADOS');
       }
       return;
@@ -1258,6 +1404,9 @@ export default function App() {
     guardarPuntoConocidoYBucle,
     viewKnownIdx,
     readTargetContext,
+    cargarPuntoSeleccionado,
+    handleOccSearchConfirm,
+    trisecSelection,
     usbMenuSelection,
     usbSelectedJob,
     usbFormatSelection,
@@ -1314,6 +1463,14 @@ export default function App() {
       setScreenState(readTargetContext === 'OCC' ? 'OCC_ORIEN' : 'ERXYZ');
     } else if (screenState === 'COORD_MENU') {
       setScreenState('MED');
+    } else if (screenState === 'OCC_LOAD_SEARCH') {
+      setScreenState('OCC_LOAD_LIST');
+    } else if (screenState === 'OCC_LOAD_LIST') {
+      setScreenState('OCC_ORIEN');
+    } else if (screenState === 'OCC_ACLER') {
+      setScreenState('OCC_ORIEN');
+    } else if (screenState === 'OCC_TRISEC') {
+      setScreenState('OCC_ORIEN');
     } else if (screenState === 'OCC_ORIEN' || screenState === 'OBS') {
       setScreenState('COORD_MENU');
       setActiveField(0);
@@ -1434,6 +1591,22 @@ export default function App() {
       return;
     }
 
+    if (screenState === 'OCC_LOAD_LIST') {
+      if (dir === 'UP' || dir === 'LEFT') {
+        setSelectedOccLoadIdx(i => (i > 0 ? i - 1 : Math.max(0, occLoadPoints.length - 1)));
+      }
+      if (dir === 'DOWN' || dir === 'RIGHT') {
+        setSelectedOccLoadIdx(i => (i < occLoadPoints.length - 1 ? i + 1 : 0));
+      }
+      return;
+    }
+
+    if (screenState === 'OCC_TRISEC') {
+      if (dir === 'UP') setTrisecSelection(s => (s > 1 ? s - 1 : 4));
+      if (dir === 'DOWN') setTrisecSelection(s => (s < 4 ? s + 1 : 1));
+      return;
+    }
+
     if (screenState === 'KNOWN_INPUT') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
       if (dir === 'DOWN') setActiveField(f => (f < 3 ? f + 1 : 0));
@@ -1441,8 +1614,22 @@ export default function App() {
     }
 
     if (screenState === 'OCC_ORIEN') {
-      if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 11));
-      if (dir === 'DOWN') setActiveField(f => (f < 11 ? f + 1 : 0));
+      if (dir === 'UP') {
+        setActiveField(f => {
+          const next = f > 0 ? f - 1 : 11;
+          if (next >= 4) setOccPage(2);
+          else setOccPage(1);
+          return next;
+        });
+      }
+      if (dir === 'DOWN') {
+        setActiveField(f => {
+          const next = f < 11 ? f + 1 : 0;
+          if (next >= 4) setOccPage(2);
+          else setOccPage(1);
+          return next;
+        });
+      }
     } else if (screenState === 'ERXYZ') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
       if (dir === 'DOWN') setActiveField(f => (f < 3 ? f + 1 : 0));
@@ -1453,7 +1640,7 @@ export default function App() {
       if (dir === 'DOWN') setActiveField(1); // Flecha abajo muestra campo Cd
       if (dir === 'UP') setActiveField(0);   // Flecha arriba regresa a PTO
     }
-  }, [screenState, knownPoints.length, jobsList.length, commitCurrentField, playBeep]);
+  }, [screenState, knownPoints.length, jobsList.length, occLoadPoints.length, commitCurrentField, playBeep]);
 
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
@@ -1813,19 +2000,81 @@ export default function App() {
       return;
     }
 
-    // Estacionamiento: F1=[CARG], F3=[E.RXYZ], F4=[REG]
+    // Estacionamiento: F1=[CARG], F2=[], F3=[E.RXYZ], F4=[REG] (Pág 1)
+    // En Pág 2: F1=[CARG], F2=[ACLE.R], F3=[E.RXYZ], F4=[TRISEC]
     if (screenState === 'OCC_ORIEN') {
       if (fNum === 1) {
-        setReadTargetContext('OCC');
-        setViewKnownIdx(0);
-        setScreenState('SELECT_KNOWN_PT');
+        // F1=[CARG] -> Flujo de Carga (listando PTO 1, PTO 2)
+        setScreenState('OCC_LOAD_LIST');
+        setSelectedOccLoadIdx(0);
+      } else if (fNum === 2) {
+        if (occPage === 2) {
+          // F2=[ACLE.R]
+          setScreenState('OCC_ACLER');
+        }
       } else if (fNum === 3) {
+        // F3=[E.RXYZ]
         setScreenState('ERXYZ');
         setActiveField(0);
       } else if (fNum === 4) {
-        commitCurrentField();
-        setLcdMessage('ESTACIÓN FIJADA');
-        setScreenState('COORD_MENU');
+        if (occPage === 2) {
+          // F4=[TRISEC]
+          setScreenState('OCC_TRISEC');
+          setTrisecSelection(2);
+        } else {
+          // F4=[REG]
+          commitCurrentField();
+          setLcdMessage('ESTACIÓN FIJADA');
+          setScreenState('COORD_MENU');
+        }
+      }
+      return;
+    }
+
+    // Flujo de Carga: 1RO (F1), ULTIM (F2), BUSC (F3), (F4)
+    if (screenState === 'OCC_LOAD_LIST') {
+      if (fNum === 1) {
+        setSelectedOccLoadIdx(0);
+      } else if (fNum === 2) {
+        setSelectedOccLoadIdx(Math.max(0, occLoadPoints.length - 1));
+      } else if (fNum === 3) {
+        setScreenState('OCC_LOAD_SEARCH');
+        setOccSearchBuffer('');
+      } else if (fNum === 4) {
+        cargarPuntoSeleccionado();
+      }
+      return;
+    }
+
+    // Búsqueda de Punto: Softkeys: , , , OK (F4)
+    if (screenState === 'OCC_LOAD_SEARCH') {
+      if (fNum === 4) {
+        handleOccSearchConfirm();
+      }
+      return;
+    }
+
+    // ACLE.R: Softkeys: REG (F1), , , OK (F4)
+    if (screenState === 'OCC_ACLER') {
+      if (fNum === 1) {
+        playLaserBeep();
+        setLcdMessage('PTO REF REGISTRADO');
+      } else if (fNum === 4) {
+        // Al pulsar OK, debe retornar a la pantalla gráfica ComPen
+        setScreenState('COMPEN');
+      }
+      return;
+    }
+
+    // TRISEC: Softkeys: , , , ENT (F4)
+    if (screenState === 'OCC_TRISEC') {
+      if (fNum === 4) {
+        if (trisecSelection === 2) {
+          // Al seleccionar YXZ con Enter, retorna a la gráfica ComPen
+          setScreenState('COMPEN');
+        } else {
+          setLcdMessage('TRISEC SELECCIONADA');
+        }
       }
       return;
     }
@@ -1890,8 +2139,13 @@ export default function App() {
   }, [
     screenState,
     medPage,
+    occPage,
     mainPage,
     showTaraSoftkey,
+    occLoadPoints.length,
+    cargarPuntoSeleccionado,
+    handleOccSearchConfirm,
+    trisecSelection,
     commitCurrentField,
     handleEnterPress,
     handleShiftPress,
@@ -1920,7 +2174,7 @@ export default function App() {
         return;
       }
 
-      if (isCurrentFieldAlpha && e.key.length === 1 && /^[a-zA-Z0-9_\-]$/.test(e.key)) {
+      if (isCurrentFieldAlpha && e.key.length === 1 && /^[a-zA-Z0-9_\-\s]$/.test(e.key)) {
         e.preventDefault();
         handleKeypadPress(e.key.toUpperCase());
         return;
@@ -1990,6 +2244,13 @@ export default function App() {
         return mainPage === 1
           ? ['DIST', 'SHV', 'OSET', 'COORD']
           : ['DATO', 'USB', 'TILT', 'COORD'];
+      case 'OCC_LOAD_LIST':
+        return ['1RO', 'ULTIM', 'BUSC', ''];
+      case 'OCC_LOAD_SEARCH':
+        return ['', '', '', 'OK'];
+      case 'OCC_ACLER':
+        return ['REG', '', '', 'OK'];
+      case 'OCC_TRISEC':
       case 'COORD_MENU':
       case 'DATO_MENU':
       case 'JOB_MENU':
@@ -2028,6 +2289,9 @@ export default function App() {
       case 'SELECT_KNOWN_PT':
         return ['ANT', 'SIG', 'ESC', 'CARG'];
       case 'OCC_ORIEN':
+        if (occPage === 2) {
+          return ['CARG', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
+        }
         return ['CARG', '', 'E.RXYZ', 'REG'];
       case 'ERXYZ':
         return ['CARG', '', 'AZIM', 'OK'];
@@ -2186,6 +2450,16 @@ export default function App() {
                         ? `P${mainPage}`
                         : screenState === 'OBS'
                         ? 'REC'
+                        : screenState === 'OCC_ORIEN'
+                        ? `P${occPage}`
+                        : screenState === 'OCC_LOAD_LIST'
+                        ? 'LIST'
+                        : screenState === 'OCC_LOAD_SEARCH'
+                        ? 'BUSC'
+                        : screenState === 'OCC_ACLER'
+                        ? 'ACLR'
+                        : screenState === 'OCC_TRISEC'
+                        ? 'TRIS'
                         : 'MENU'}
                     </span>
 
@@ -2993,61 +3267,243 @@ export default function App() {
 
                       {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, PTO, HI + CAMPOS ATMOSFÉRICOS CON SCROLL) */}
                       {screenState === 'OCC_ORIEN' && (() => {
-                        const occFields = [
-                          { label: 'Y0', val: `${station.N.toFixed(3)} m` },
-                          { label: 'X0', val: `${station.E.toFixed(3)} m` },
-                          { label: 'Z0', val: `${station.Z.toFixed(3)} m` },
-                          { label: 'PTO', val: station.PTO || 'EST-1' },
-                          { label: 'HI', val: `${station.HI.toFixed(3)} m` },
-                          { label: 'Cd', val: stationAtm.CD },
-                          { label: 'Operador', val: stationAtm.operador },
-                          { label: 'Clima', val: stationAtm.clima },
-                          { label: 'Viento', val: stationAtm.viento },
-                          { label: 'Temp', val: stationAtm.temp },
-                          { label: 'Pres', val: stationAtm.pres },
-                          { label: 'PPm', val: stationAtm.ppm }
+                        const isP1 = occPage === 1;
+                        const page1Items = [
+                          {
+                            label: 'Y0',
+                            fieldIdx: 0,
+                            display: activeField === 0
+                              ? `${inputBuffer !== '' ? inputBuffer : (station.N === 1000 ? '1000' : station.N.toFixed(3))}_`
+                              : `${station.N.toFixed(3)} m`
+                          },
+                          {
+                            label: 'X0',
+                            fieldIdx: 1,
+                            display: activeField === 1
+                              ? `${inputBuffer !== '' ? inputBuffer : (station.E === 1000 ? '1000' : station.E.toFixed(3))}_`
+                              : `${station.E.toFixed(3)} m`
+                          },
+                          {
+                            label: 'Z0',
+                            fieldIdx: 2,
+                            display: activeField === 2
+                              ? `${inputBuffer !== '' ? inputBuffer : (station.Z === 100 ? '100' : station.Z.toFixed(3))}_`
+                              : `${station.Z.toFixed(3)} m`
+                          },
+                          {
+                            label: 'PTO',
+                            fieldIdx: 3,
+                            display: activeField === 3
+                              ? `${inputBuffer !== '' ? inputBuffer : (station.PTO || 'EST-1')}_`
+                              : (station.PTO || 'EST-1')
+                          }
                         ];
 
-                        const scrollOffset = activeField <= 3 ? 0 : Math.min(activeField - 3, occFields.length - 4);
-                        const visibleOccFields = occFields.slice(scrollOffset, scrollOffset + 4);
+                        const page2Items = [
+                          {
+                            label: 'PTO',
+                            fieldIdx: 3,
+                            display: station.PTO || 'EST-1'
+                          },
+                          {
+                            label: 'HI',
+                            fieldIdx: 4,
+                            display: activeField === 4
+                              ? `${inputBuffer !== '' ? inputBuffer : station.HI.toFixed(3)}_`
+                              : `${station.HI.toFixed(3)} m`
+                          },
+                          {
+                            label: 'Cd',
+                            fieldIdx: 5,
+                            display: activeField === 5
+                              ? `${inputBuffer !== '' ? inputBuffer : stationAtm.CD}_`
+                              : stationAtm.CD
+                          },
+                          {
+                            label: 'Operador',
+                            fieldIdx: 6,
+                            display: activeField === 6
+                              ? `${inputBuffer !== '' ? inputBuffer : stationAtm.operador}_`
+                              : stationAtm.operador
+                          }
+                        ];
+
+                        const currentItems = isP1 ? page1Items : page2Items;
 
                         return (
                           <div className="space-y-0.5 font-mono text-xs">
                             <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
                               <span>ESTACIONAMIENTO</span>
                               <div className="flex items-center gap-1">
-                                {scrollOffset > 0 && <span className="text-[10px] text-neutral-900 font-bold">▲</span>}
-                                {scrollOffset + 4 < occFields.length && <span className="text-[10px] text-neutral-900 font-bold">▼</span>}
-                                <span className="text-[10px] font-bold">[{activeField + 1}/12]</span>
+                                <span className="text-[10px] font-bold">*[1/12]</span>
                               </div>
                             </div>
-                            {visibleOccFields.map((item, localIdx) => {
-                              const realIdx = scrollOffset + localIdx;
-                              const isCur = activeField === realIdx;
-                              return (
-                                <div
-                                  key={item.label}
-                                  onClick={() => {
-                                    commitCurrentField();
-                                    setActiveField(realIdx);
-                                  }}
-                                  className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
-                                    isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                                  }`}
-                                >
-                                  <span className="shrink-0">{item.label}:</span>
-                                  <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
-                                    {isCur ? `${inputBuffer}_` : item.val}
-                                  </span>
-                                </div>
-                              );
-                            })}
+                            <div className="space-y-0.5 py-0.5">
+                              {currentItems.map(item => {
+                                const isCur = activeField === item.fieldIdx;
+                                return (
+                                  <div
+                                    key={item.label}
+                                    onClick={() => {
+                                      commitCurrentField();
+                                      setActiveField(item.fieldIdx);
+                                    }}
+                                    className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
+                                      isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                    }`}
+                                  >
+                                    <span className="shrink-0">{item.label}:</span>
+                                    <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
+                                      {item.display}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                             <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                              {activeField >= 5 ? 'Datos Atmosféricos • ▲ / ▼: Scroll' : 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'}
+                              {isP1
+                                ? 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'
+                                : 'F1=[CARG] • F2=[ACLE.R] • F3=[E.RXYZ] • F4=[TRISEC]'}
                             </div>
                           </div>
                         );
                       })()}
+
+                      {/* ESTADO 'OCC_LOAD_LIST': LISTA DE PUNTOS CARGADOS (PTO 1, PTO 2) */}
+                      {screenState === 'OCC_LOAD_LIST' && (() => {
+                        const startIdx = Math.max(0, Math.min(selectedOccLoadIdx - 1, occLoadPoints.length - 4));
+                        const visiblePoints = occLoadPoints.slice(startIdx, startIdx + 4);
+
+                        return (
+                          <div className="space-y-0.5 font-mono text-xs">
+                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                              <span>LISTA PUNTOS</span>
+                              <span className="text-[10px] font-bold">[{selectedOccLoadIdx + 1}/{occLoadPoints.length}]</span>
+                            </div>
+                            <div className="space-y-0.5 py-0.5">
+                              {visiblePoints.map((pt, localIdx) => {
+                                const realIdx = startIdx + localIdx;
+                                const isSel = selectedOccLoadIdx === realIdx;
+                                return (
+                                  <div
+                                    key={pt.PTO + realIdx}
+                                    onClick={() => {
+                                      setSelectedOccLoadIdx(realIdx);
+                                      cargarPuntoSeleccionado();
+                                    }}
+                                    className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
+                                      isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                    }`}
+                                  >
+                                    <span className="font-bold truncate max-w-[50%]">{pt.PTO}</span>
+                                    <span className="text-[10px] truncate max-w-[50%] font-mono text-neutral-800">
+                                      Y:{pt.N.toFixed(1)} X:{pt.E.toFixed(1)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                              ▲ ▼ Seleccionar • [ENT] Cargar • F3=[BUSC]
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ESTADO 'OCC_LOAD_SEARCH': BUSCAR PUNTO (Criteria:Completo, Direct.: _) */}
+                      {screenState === 'OCC_LOAD_SEARCH' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>BUSCAR PTO</span>
+                            <span className="text-[10px] font-bold">[CRIT]</span>
+                          </div>
+                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
+                            <div className="text-xs">
+                              <span className="text-neutral-700">Criteria:</span>
+                              <span className="font-bold ml-1 text-neutral-900">Completo</span>
+                            </div>
+                            <div className="flex items-center text-xs">
+                              <span className="shrink-0 text-neutral-700">Direct.:</span>
+                              <span className="font-bold font-mono ml-1 truncate max-w-[70%] bg-black/10 px-1 py-0.5 rounded">
+                                {occSearchBuffer}_
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-1 font-sans">
+                            Escriba PTO • F4=[OK] Buscar • [ESC] Volver
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'OCC_ACLER': ORIENTACIÓN ACLE.R */}
+                      {screenState === 'OCC_ACLER' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>ACLE.R</span>
+                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
+                          </div>
+                          <div className="space-y-0.5 bg-black/5 p-1.5 rounded text-xs">
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/10">
+                              <span>Pto. Ref.</span>
+                              <span className="font-bold">{backsight.PTO || 'BS-1'}</span>
+                            </div>
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/10">
+                              <span>Lect.Ref.</span>
+                              <span className="font-bold font-mono">0°00'00"</span>
+                            </div>
+                            <div className="py-0.5 border-b border-neutral-800/10 font-bold text-neutral-900">
+                              AZ Rango exced.
+                            </div>
+                            <div className="flex justify-between items-center py-0.5">
+                              <span>HA-D</span>
+                              <span className="font-mono font-bold">{formatDMS(checkBsData.haD || 0)}</span>
+                            </div>
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            F1=[REG] • F4=[OK] ComPen
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'OCC_TRISEC': MENÚ TRISECCIÓN */}
+                      {screenState === 'OCC_TRISEC' && (
+                        <div className="space-y-1 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center">
+                            <span>--- TRISECCIÓN ---</span>
+                            <span className="text-[10px] font-bold">[{trisecSelection}/4]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. A' },
+                            { id: 2, label: '2. YXZ' },
+                            { id: 3, label: '3. Cota' },
+                            { id: 4, label: '4. Ajustes' }
+                          ].map(item => {
+                            const isSel = trisecSelection === item.id;
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  setTrisecSelection(item.id);
+                                  if (item.id === 2) {
+                                    setScreenState('COMPEN');
+                                  } else {
+                                    setLcdMessage('TRISEC SELECCIONADA');
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
+                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSel && <span>[ENT]</span>}
+                              </div>
+                            );
+                          })}
+                          <div className="text-[10px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
+                          </div>
+                        </div>
+                      )}
 
                       {/* ESTADO 'ERXYZ': ORIENTAR PUNTO ATRÁS (Yref, Xref, Zref, PTO) */}
                       {screenState === 'ERXYZ' && (

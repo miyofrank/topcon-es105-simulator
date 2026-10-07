@@ -123,7 +123,9 @@ type ScreenState =
   | 'REPL_DATA'
   | 'TOPO_MENU'
   | 'TOPO_NOTA'
-  | 'TOPO_VER';
+  | 'TOPO_VER'
+  | 'EDM_MENU'
+  | 'DESPLZ_MENU';
 
 // Conversión sexagesimal estándar topográfica (DD°MM'SS")
 export const formatDMS = (deg: number): string => {
@@ -332,6 +334,13 @@ export default function App() {
   const [topoMenuSelection, setTopoMenuSelection] = useState<number>(1);
   const [topoVerPage, setTopoVerPage] = useState<1 | 2>(1);
 
+  // Estados para Menú EDM, DESPLZ, Ajustes Rápidos (Estrella ★) y USB Tipo T
+  const [prevScreenBeforeEdm, setPrevScreenBeforeEdm] = useState<ScreenState>('MED');
+  const [edmReflector, setEdmReflector] = useState<'N-Prism' | 'Prisma' | 'Diana' | 'N-Prisma'>('N-Prism');
+  const [desplzMenuSelection, setDesplzMenuSelection] = useState<number>(1);
+  const [isStarMenuOpen, setIsStarMenuOpen] = useState<boolean>(false);
+  const [usbTTypeSelection, setUsbTTypeSelection] = useState<number>(1);
+
   const GRAPHIC_MENU_ITEMS = useMemo(() => [
     { id: 'coord', name: 'Coord' },
     { id: 'replanteo', name: 'RePlanteo' },
@@ -445,6 +454,31 @@ export default function App() {
     playBeep(2200, 0.06);
     setTimeout(() => playBeep(2800, 0.14), 80);
   }, [soundEnabled, playBeep]);
+
+  // Ciclo interactivo de reflectores EDM Topcon: N-Prism -> Prisma -> Diana -> N-Prisma
+  const cycleEdmReflector = useCallback(() => {
+    playBeep(1200, 0.05);
+    setEdmReflector(prev => {
+      if (prev === 'N-Prism' || prev === 'N-Prisma') {
+        setEdmMode('prism');
+        return 'Prisma';
+      }
+      if (prev === 'Prisma') {
+        setEdmMode('sheet');
+        return 'Diana';
+      }
+      setEdmMode('non_prism');
+      return 'N-Prisma';
+    });
+  }, [playBeep]);
+
+  // Manejador del botón físico de estrella (Ajustes Rápidos): solo abre dentro de OBS / MED
+  const handleStarPress = useCallback(() => {
+    playBeep(1600, 0.05);
+    if (screenState === 'OBS' || screenState === 'MED') {
+      setIsStarMenuOpen(prev => !prev);
+    }
+  }, [screenState, playBeep]);
 
   // Limpiar mensaje temporal en LCD
   useEffect(() => {
@@ -868,9 +902,9 @@ export default function App() {
   const handleShiftPress = useCallback(() => {
     playBeep(1200, 0.05);
     setEdmMode(prev => {
-      if (prev === 'prism') return 'sheet';
-      if (prev === 'sheet') return 'non_prism';
-      return 'prism';
+      const next = prev === 'prism' ? 'sheet' : prev === 'sheet' ? 'non_prism' : 'prism';
+      setEdmReflector(next === 'prism' ? 'Prisma' : next === 'sheet' ? 'Diana' : 'N-Prisma');
+      return next;
     });
     // Si está en un campo de texto, también despliega u oculta la ayuda alfanumérica
     if (isCurrentFieldAlpha) {
@@ -964,13 +998,35 @@ export default function App() {
       return;
     }
 
-    // Selección numérica en menú USB (5 opciones)
+    // Selección numérica en menú USB (Pantalla 1: 1. Tipo T, 2. Tipo S)
     if (screenState === 'USB_MENU') {
+      if (key === '1') {
+        setScreenState('USB_TTYPE');
+        setUsbTTypeSelection(1);
+      } else if (key === '2') {
+        setUsbMenuSelection(2);
+        setLcdMessage('TIPO S:\nNO DISPONIBLE');
+      }
+      return;
+    }
+
+    // Selección numérica en USB Tipo T (Pantalla 2: 5 opciones)
+    if (screenState === 'USB_TTYPE') {
       if (key === '1') { setScreenState('USB_SAVE_JOB'); setSelectedJobIdx(0); }
-      else if (key === '2') { setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO'); }
-      else if (key === '3') { setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS'); }
-      else if (key === '4') { setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO'); }
-      else if (key === '5') { setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA'); }
+      else if (key === '2') { setUsbTTypeSelection(2); setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO'); }
+      else if (key === '3') { setUsbTTypeSelection(3); setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS'); }
+      else if (key === '4') { setUsbTTypeSelection(4); setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO'); }
+      else if (key === '5') { setUsbTTypeSelection(5); setLcdMessage('ESTADO DE FICH.:\nMEMORIA USB LISTA'); }
+      return;
+    }
+
+    // Selección numérica en DESPLZ_MENU (5 opciones)
+    if (screenState === 'DESPLZ_MENU') {
+      if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); setOccPage(1); }
+      else if (['2', '3', '4', '5'].includes(key)) {
+        setDesplzMenuSelection(parseInt(key));
+        setLcdMessage('DESPLZ:\nEN DESARROLLO');
+      }
       return;
     }
 
@@ -988,7 +1044,7 @@ export default function App() {
       if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); setOccPage(1); }
       else if (key === '2') { setScreenState('REPL_DATA'); setReplDisplayMode('COORD'); }
       else if (key === '3') { setScreenState('OBS'); setActiveField(0); }
-      else if (key === '4') { handleShiftPress(); }
+      else if (key === '4') { setPrevScreenBeforeEdm('REPLANTEO_MENU'); setScreenState('EDM_MENU'); }
       return;
     }
 
@@ -1023,7 +1079,8 @@ export default function App() {
       screenState === 'JOB_LIST' ||
       screenState === 'JOB_DELETE_LIST' ||
       screenState === 'JOB_DELETE_CONFIRM' ||
-      screenState === 'USB_SAVE_JOB'
+      screenState === 'USB_SAVE_JOB' ||
+      screenState === 'EDM_MENU'
     ) return;
 
     if (key === 'BS') {
@@ -1042,6 +1099,10 @@ export default function App() {
   // Botón físico central AZUL: ENTER
   const handleEnterPress = useCallback(() => {
     playBeep(1450, 0.07);
+    if (isStarMenuOpen) {
+      setIsStarMenuOpen(false);
+      return;
+    }
     commitCurrentField();
 
     // Arranque
@@ -1088,7 +1149,8 @@ export default function App() {
         setScreenState('TOPO_MENU');
         setTopoMenuSelection(1);
       } else if (item.id === 'desplz') {
-        setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+        setScreenState('DESPLZ_MENU');
+        setDesplzMenuSelection(1);
       } else if (item.id === 'mdr') {
         setLcdMessage('MEDICIÓN DIST.\nREMOTA (MDR)');
       } else if (item.id === 'calc_area') {
@@ -1124,7 +1186,8 @@ export default function App() {
         setScreenState('OBS');
         setActiveField(0);
       } else if (replMenuSelection === 4) {
-        handleShiftPress();
+        setPrevScreenBeforeEdm('REPLANTEO_MENU');
+        setScreenState('EDM_MENU');
       }
       return;
     }
@@ -1483,19 +1546,48 @@ export default function App() {
       return;
     }
 
-    // Menú USB: 5 opciones Topcon
+    // Menú EDM
+    if (screenState === 'EDM_MENU') {
+      cycleEdmReflector();
+      return;
+    }
+
+    // Menú DESPLZ
+    if (screenState === 'DESPLZ_MENU') {
+      if (desplzMenuSelection === 1) {
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+        setOccPage(1);
+      } else {
+        setLcdMessage('DESPLZ:\nEN DESARROLLO');
+      }
+      return;
+    }
+
+    // Menú USB: Pantalla 1 (Tipo T / Tipo S)
     if (screenState === 'USB_MENU') {
       if (usbMenuSelection === 1) {
+        setScreenState('USB_TTYPE');
+        setUsbTTypeSelection(1);
+      } else {
+        setLcdMessage('TIPO S:\nNO DISPONIBLE');
+      }
+      return;
+    }
+
+    // Menú USB: Pantalla 2 (Tipo T - 5 opciones)
+    if (screenState === 'USB_TTYPE') {
+      if (usbTTypeSelection === 1) {
         setScreenState('USB_SAVE_JOB');
         setSelectedJobIdx(0);
-      } else if (usbMenuSelection === 2) {
+      } else if (usbTTypeSelection === 2) {
         setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO');
-      } else if (usbMenuSelection === 3) {
+      } else if (usbTTypeSelection === 3) {
         setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS');
-      } else if (usbMenuSelection === 4) {
+      } else if (usbTTypeSelection === 4) {
         setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO');
-      } else if (usbMenuSelection === 5) {
-        setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA');
+      } else if (usbTTypeSelection === 5) {
+        setLcdMessage('ESTADO DE FICH.:\nMEMORIA USB LISTA');
       }
       return;
     }
@@ -1553,6 +1645,10 @@ export default function App() {
     topoMenuSelection,
     handleShiftPress,
     usbMenuSelection,
+    usbTTypeSelection,
+    desplzMenuSelection,
+    isStarMenuOpen,
+    cycleEdmReflector,
     usbSelectedJob,
     usbFormatSelection,
     playBeep,
@@ -1562,6 +1658,10 @@ export default function App() {
   // Botón físico ESC (Al pulsar repetidamente desde cualquier estado, llega a 'ROOT')
   const handleEscPress = useCallback(() => {
     playBeep(900, 0.07);
+    if (isStarMenuOpen) {
+      setIsStarMenuOpen(false);
+      return;
+    }
     commitCurrentField();
     setLcdMessage(null);
 
@@ -1638,20 +1738,24 @@ export default function App() {
       setScreenState('ERXYZ');
     } else if (screenState === 'CHECK_BS_DIST') {
       setScreenState('CHECK_BS');
+    } else if (screenState === 'EDM_MENU') {
+      setScreenState(prevScreenBeforeEdm || 'MED');
+    } else if (screenState === 'DESPLZ_MENU') {
+      setScreenState('MED');
     } else if (screenState === 'USB_FORMAT') {
       setScreenState('USB_SAVE_JOB');
     } else if (screenState === 'USB_SAVE_JOB') {
-      setScreenState('USB_MENU');
-    } else if (screenState === 'USB_MENU') {
-      setScreenState('MED');
+      setScreenState('USB_TTYPE');
     } else if (screenState === 'USB_TTYPE') {
       setScreenState('USB_MENU');
+    } else if (screenState === 'USB_MENU') {
+      setScreenState('ROOT');
     } else if (screenState === 'TILT') {
       setScreenState('ROOT');
     } else {
       setScreenState('ROOT');
     }
-  }, [screenState, readTargetContext, commitCurrentField, playBeep]);
+  }, [screenState, readTargetContext, prevScreenBeforeEdm, isStarMenuOpen, commitCurrentField, playBeep]);
 
   // Flechas direccionales en cruz
   const handleArrow = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
@@ -1722,9 +1826,27 @@ export default function App() {
       return;
     }
 
+    if (screenState === 'EDM_MENU') {
+      cycleEdmReflector();
+      return;
+    }
+
+    if (screenState === 'DESPLZ_MENU') {
+      if (dir === 'UP') setDesplzMenuSelection(prev => (prev > 1 ? prev - 1 : 5));
+      if (dir === 'DOWN') setDesplzMenuSelection(prev => (prev < 5 ? prev + 1 : 1));
+      return;
+    }
+
     if (screenState === 'USB_MENU') {
-      if (dir === 'UP') setUsbMenuSelection(prev => (prev > 1 ? prev - 1 : 5));
-      if (dir === 'DOWN') setUsbMenuSelection(prev => (prev < 5 ? prev + 1 : 1));
+      if (dir === 'UP' || dir === 'DOWN') {
+        setUsbMenuSelection(prev => (prev === 1 ? 2 : 1));
+      }
+      return;
+    }
+
+    if (screenState === 'USB_TTYPE') {
+      if (dir === 'UP') setUsbTTypeSelection(prev => (prev > 1 ? prev - 1 : 5));
+      if (dir === 'DOWN') setUsbTTypeSelection(prev => (prev < 5 ? prev + 1 : 1));
       return;
     }
 
@@ -1741,13 +1863,6 @@ export default function App() {
     if (screenState === 'USB_FORMAT') {
       if (dir === 'UP') setUsbFormatSelection(prev => (prev > 1 ? prev - 1 : 4));
       if (dir === 'DOWN') setUsbFormatSelection(prev => (prev < 4 ? prev + 1 : 1));
-      return;
-    }
-
-    if (screenState === 'USB_TTYPE') {
-      if (dir === 'UP' || dir === 'DOWN') {
-        setUsbMenuSelection(prev => (prev === 1 ? 2 : 1));
-      }
       return;
     }
 
@@ -1826,7 +1941,7 @@ export default function App() {
       if (dir === 'DOWN') setActiveField(1); // Flecha abajo muestra campo Cd
       if (dir === 'UP') setActiveField(0);   // Flecha arriba regresa a PTO
     }
-  }, [screenState, knownPoints.length, jobsList.length, occLoadPoints.length, GRAPHIC_MENU_ITEMS.length, commitCurrentField, playBeep]);
+  }, [screenState, knownPoints.length, jobsList.length, occLoadPoints.length, GRAPHIC_MENU_ITEMS.length, cycleEdmReflector, commitCurrentField, playBeep]);
 
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
@@ -1856,12 +1971,16 @@ export default function App() {
       return;
     }
 
-    // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[], F3=[DATO], F4=[CNFG]
+    // 1. ESTADO ROOT (Raíz): F1=[OBS], F2=[USB], F3=[DATO], F4=[CNFG]
     if (screenState === 'ROOT') {
       if (fNum === 1) {
         // F1=[OBS] -> Acceso directo a la pantalla de Medición MED (Pág 1)
         setScreenState('MED');
         setMedPage(1);
+      } else if (fNum === 2) {
+        // F2=[USB] -> Menú USB
+        setScreenState('USB_MENU');
+        setUsbMenuSelection(1);
       } else if (fNum === 3) {
         // F3=[DATO] -> menú DATO
         setScreenState('DATO_MENU');
@@ -1896,7 +2015,8 @@ export default function App() {
         } else if (fNum === 3) {
           setLcdMessage(`RANGO H RETENIDO:\n${formatDMS(envHD)}`);
         } else if (fNum === 4) {
-          handleShiftPress();
+          setPrevScreenBeforeEdm('MED');
+          setScreenState('EDM_MENU');
         }
       } else if (medPage === 2) {
         // Pág 2: [MDR] (F1), [DESPLZ] (F2), [TOPO] (F3), [REPL] (F4)
@@ -1905,7 +2025,8 @@ export default function App() {
           playLaserBeep();
           setTimeout(() => { setIsMeasuring(false); }, 350);
         } else if (fNum === 2) {
-          setLcdMessage('MODO DESPLAZAMIENTO\n(OFFSET) ACTIVO');
+          setScreenState('DESPLZ_MENU');
+          setDesplzMenuSelection(1);
         } else if (fNum === 3) {
           // [TOPO] -> Flujo TOPO
           setScreenState('TOPO_MENU');
@@ -1992,8 +2113,8 @@ export default function App() {
       return;
     }
 
-    // Menús USB
-    if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE') {
+    // Menús USB y DESPLZ: F4=[ENT]
+    if (screenState === 'USB_MENU' || screenState === 'USB_TTYPE' || screenState === 'DESPLZ_MENU') {
       if (fNum === 4) handleEnterPress();
       return;
     }
@@ -2005,7 +2126,7 @@ export default function App() {
       } else if (fNum === 2) {
         setSelectedJobIdx(i => (i < 5 ? (i + 5 < jobsList.length ? i + 5 : i) : i - 5));
       } else if (fNum === 3) {
-        setScreenState('USB_MENU');
+        setScreenState('USB_TTYPE');
       } else if (fNum === 4) {
         handleEnterPress();
       }
@@ -2487,7 +2608,7 @@ export default function App() {
       case 'COMPEN':
         return ['OK', 'PLGETT', '', ''];
       case 'ROOT':
-        return ['OBS', '', 'DATO', 'CNFG'];
+        return ['OBS', 'USB', 'DATO', 'CNFG'];
       case 'MED':
         if (showTaraSoftkey) return ['', '', '', 'TARA'];
         if (medPage === 1) return ['MENU', 'COMP', 'RNG H', 'EDM'];
@@ -2513,7 +2634,10 @@ export default function App() {
       case 'KNOWN_MENU':
       case 'USB_MENU':
       case 'USB_TTYPE':
+      case 'DESPLZ_MENU':
         return ['', '', '', 'ENT'];
+      case 'EDM_MENU':
+        return ['', '', '', ''];
       case 'REPL_DATA':
         return ['CARG', 'DISP', '', 'OK'];
       case 'TOPO_NOTA':
@@ -2866,6 +2990,36 @@ export default function App() {
                   backgroundSize: '4px 4px',
                 }}
               >
+                {/* MODAL / OVERLAY AJUSTES RÁPIDOS (BOTÓN FÍSICO DE ESTRELLA ★) */}
+                {isStarMenuOpen && (
+                  <div
+                    onClick={() => setIsStarMenuOpen(false)}
+                    className="absolute inset-0 bg-[#9CA3AF] text-neutral-950 z-40 p-2.5 flex flex-col justify-between font-mono select-none"
+                  >
+                    <div className="border-b border-neutral-800/40 pb-0.5 flex justify-between items-center text-xs font-bold">
+                      <span>AJUSTES RÁPIDOS</span>
+                      <span className="text-[11px]">★</span>
+                    </div>
+                    <div className="flex-1 py-2 flex flex-col justify-center space-y-2 text-xs">
+                      <div className="flex justify-between items-center px-1">
+                        <span>Compens.</span>
+                        <span className="font-bold">X(H, V)</span>
+                      </div>
+                      <div className="flex justify-between items-center px-1">
+                        <span>Contraste</span>
+                        <span className="font-bold">5</span>
+                      </div>
+                      <div className="flex justify-between items-center px-1">
+                        <span>Niv Retic</span>
+                        <span className="font-bold">3</span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-center border-t border-neutral-800/40 pt-1 font-bold">
+                      Pulse &lt;ENT&gt; para salir (o ESC)
+                    </div>
+                  </div>
+                )}
+
                 {/* 1. BARRA SUPERIOR LCD (Compensador, Modo EDM ciclante por SFT, Batería) */}
                 <div className="flex items-center justify-between border-b border-neutral-800/40 pb-1 text-[11px] font-bold tracking-wider">
                   <div className="flex items-center gap-1.5">
@@ -2902,6 +3056,12 @@ export default function App() {
                         ? 'NOTA'
                         : screenState === 'TOPO_VER'
                         ? 'VER'
+                        : screenState === 'EDM_MENU'
+                        ? 'EDM'
+                        : screenState === 'DESPLZ_MENU'
+                        ? 'OFFS'
+                        : screenState === 'USB_MENU' || screenState === 'USB_TTYPE'
+                        ? 'USB'
                         : 'MENU'}
                     </span>
 
@@ -4324,45 +4484,166 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 3. ESTADO 'USB_MENU': MENÚ USB CON 5 OPCIONES ESTRICTAS */}
-                      {screenState === 'USB_MENU' && (
+                      {/* ESTADO 'EDM_MENU': MENÚ CONFIGURACIÓN EDM */}
+                      {screenState === 'EDM_MENU' && (
+                        <div className="space-y-1 font-mono text-xs px-1">
+                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
+                            <span>--- EDM ---</span>
+                          </div>
+                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
+                            <div className="flex justify-between items-center text-xs">
+                              <span>Modo</span>
+                              <span>: <span className="bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 font-bold">Srapido</span></span>
+                            </div>
+                            <div
+                              onClick={cycleEdmReflector}
+                              className="flex justify-between items-center text-xs cursor-pointer hover:bg-black/10 px-0.5 rounded"
+                              title="Clic o [ENT] para alternar reflector"
+                            >
+                              <span>Reflector</span>
+                              <span>: <span className="font-bold underline decoration-dotted">{edmReflector}</span></span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs">
+                              <span>cp</span>
+                              <span className="font-mono">: 0</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs">
+                              <span>Mant.Illum</span>
+                              <span className="font-mono">: Laser</span>
+                            </div>
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            [ENT] / Clic: Cambiar Reflector • [ESC]: Volver
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'DESPLZ_MENU': MENÚ DESPLAZAMIENTO */}
+                      {screenState === 'DESPLZ_MENU' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- DESPLZ ---</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{desplzMenuSelection}/5]</span>
+                          </div>
+                          {[
+                            { id: 1, label: '1. Occ.Orien.' },
+                            { id: 2, label: '2. DesPl/Dist' },
+                            { id: 3, label: '3. DesPl/Ang' },
+                            { id: 4, label: '4. DesPl/2D' },
+                            { id: 5, label: '5. DesPl/Plan.' }
+                          ].map(item => {
+                            const isSel = desplzMenuSelection === item.id;
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  setDesplzMenuSelection(item.id);
+                                  if (item.id === 1) {
+                                    setScreenState('OCC_ORIEN');
+                                    setActiveField(0);
+                                    setOccPage(1);
+                                  } else {
+                                    setLcdMessage('DESPLZ:\nEN DESARROLLO');
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                              </div>
+                            );
+                          })}
+                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ESTADO 'USB_MENU': MENÚ USB PANTALLA 1 (TIPO T / TIPO S) */}
+                      {screenState === 'USB_MENU' && (
+                        <div className="space-y-1 font-mono text-xs px-1">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
                             <span>--- MENÚ USB ---</span>
-                            <span className="text-[10px] text-neutral-800 font-bold">[{usbMenuSelection}/5]</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{usbMenuSelection}/2]</span>
+                          </div>
+                          <div className="space-y-1 pt-1">
+                            {[
+                              { id: 1, label: '1. Tipo T' },
+                              { id: 2, label: '2. Tipo S' }
+                            ].map(item => {
+                              const isSel = usbMenuSelection === item.id;
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => {
+                                    setUsbMenuSelection(item.id);
+                                    if (item.id === 1) {
+                                      setScreenState('USB_TTYPE');
+                                      setUsbTTypeSelection(1);
+                                    } else {
+                                      setLcdMessage('TIPO S:\nNO DISPONIBLE');
+                                    }
+                                  }}
+                                  className={`px-2 py-1 rounded cursor-pointer flex items-center justify-between text-xs ${
+                                    isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  }`}
+                                >
+                                  <span>{item.label}</span>
+                                  {isSel && <span className="text-[10px]">[ENT]</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="text-[9px] text-neutral-700 text-center pt-2 font-sans">
+                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'USB_TTYPE': MENÚ USB PANTALLA 2 (TIPO T) */}
+                      {screenState === 'USB_TTYPE' && (
+                        <div className="space-y-0.5 font-mono text-xs">
+                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
+                            <span>--- TIPO T ---</span>
+                            <span className="text-[10px] text-neutral-800 font-bold">[{usbTTypeSelection}/5]</span>
                           </div>
                           {[
                             { id: 1, label: '1. Guardar Datos' },
                             { id: 2, label: '2. Cargar Pto.Conoc' },
-                            { id: 3, label: '3. Guardar Codigo' },
-                            { id: 4, label: '4. Cargar Codigo' },
-                            { id: 5, label: '5. Estado' }
-                          ].map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                setUsbMenuSelection(item.id);
-                                if (item.id === 1) {
-                                  setScreenState('USB_SAVE_JOB');
-                                  setSelectedJobIdx(0);
-                                } else if (item.id === 2) {
-                                  setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO');
-                                } else if (item.id === 3) {
-                                  setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS');
-                                } else if (item.id === 4) {
-                                  setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO');
-                                } else if (item.id === 5) {
-                                  setLcdMessage('ESTADO USB:\nMEMORIA USB LISTA');
-                                }
-                              }}
-                              className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                usbMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                              }`}
-                            >
-                              <span>{item.label}</span>
-                              {usbMenuSelection === item.id && <span className="text-[10px]">[ENT]</span>}
-                            </div>
-                          ))}
+                            { id: 3, label: '3. Guardar codigo' },
+                            { id: 4, label: '4. Cargar codigo' },
+                            { id: 5, label: '5. Estado de fich.' }
+                          ].map(item => {
+                            const isSel = usbTTypeSelection === item.id;
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  setUsbTTypeSelection(item.id);
+                                  if (item.id === 1) {
+                                    setScreenState('USB_SAVE_JOB');
+                                    setSelectedJobIdx(0);
+                                  } else if (item.id === 2) {
+                                    setLcdMessage('CARGAR PTO.CONOC:\nDISPOSITIVO NO CONECTADO');
+                                  } else if (item.id === 3) {
+                                    setLcdMessage('GUARDAR CODIGO:\nSIN CODIGOS EXTERNOS');
+                                  } else if (item.id === 4) {
+                                    setLcdMessage('CARGAR CODIGO:\nDISPOSITIVO NO CONECTADO');
+                                  } else if (item.id === 5) {
+                                    setLcdMessage('ESTADO DE FICH.:\nMEMORIA USB LISTA');
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
+                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                }`}
+                              >
+                                <span>{item.label}</span>
+                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                              </div>
+                            );
+                          })}
                           <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
                             ▲ / ▼: Seleccionar • [ENT]: Entrar
                           </div>
@@ -4637,9 +4918,9 @@ export default function App() {
                 {/* FILA SUPERIOR ESPECIAL: 3 BOTONES PEQUEÑOS (ESTRELLA, ILUMINACIÓN/SOL, ENCENDIDO POWER) */}
                 <div className="flex items-center justify-between gap-2 bg-neutral-950/70 p-1.5 rounded-xl border border-neutral-800">
                   <button
-                    onClick={() => playBeep(1600, 0.05)}
+                    onClick={handleStarPress}
                     className="flex-1 h-8 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-amber-400 rounded-md shadow-md border-b-2 border-neutral-950 active:border-b-0 active:translate-y-0.5 flex items-center justify-center cursor-pointer transition-all"
-                    title="Tecla Rápida ★"
+                    title="Tecla Rápida ★ (Ajustes Rápidos)"
                   >
                     <Star size={14} className="fill-amber-400 text-amber-400" />
                   </button>

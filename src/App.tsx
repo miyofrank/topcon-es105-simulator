@@ -281,8 +281,8 @@ export default function App() {
     acim: 45
   });
 
-  // Selección en menús USB
-  const [usbMenuSelection, setUsbMenuSelection] = useState<number>(1);
+  // Selección en menús USB (por defecto opción 2. Tipo S con indicador [2/2])
+  const [usbMenuSelection, setUsbMenuSelection] = useState<number>(2);
   const [usbSelectedJob, setUsbSelectedJob] = useState<string>('PROYECTO1');
   const [usbFormatSelection, setUsbFormatSelection] = useState<number>(1);
   const [obsShotFlash, setObsShotFlash] = useState<boolean>(false);
@@ -340,6 +340,7 @@ export default function App() {
   const [desplzMenuSelection, setDesplzMenuSelection] = useState<number>(1);
   const [isStarMenuOpen, setIsStarMenuOpen] = useState<boolean>(false);
   const [usbTTypeSelection, setUsbTTypeSelection] = useState<number>(1);
+  const [usbTypeMode, setUsbTypeMode] = useState<'T' | 'S'>('S');
 
   const GRAPHIC_MENU_ITEMS = useMemo(() => [
     { id: 'coord', name: 'Coord' },
@@ -1001,11 +1002,15 @@ export default function App() {
     // Selección numérica en menú USB (Pantalla 1: 1. Tipo T, 2. Tipo S)
     if (screenState === 'USB_MENU') {
       if (key === '1') {
+        setUsbTypeMode('T');
+        setUsbMenuSelection(1);
         setScreenState('USB_TTYPE');
         setUsbTTypeSelection(1);
       } else if (key === '2') {
+        setUsbTypeMode('S');
         setUsbMenuSelection(2);
-        setLcdMessage('TIPO S:\nNO DISPONIBLE');
+        setScreenState('USB_TTYPE');
+        setUsbTTypeSelection(1);
       }
       return;
     }
@@ -1567,10 +1572,13 @@ export default function App() {
     // Menú USB: Pantalla 1 (Tipo T / Tipo S)
     if (screenState === 'USB_MENU') {
       if (usbMenuSelection === 1) {
+        setUsbTypeMode('T');
         setScreenState('USB_TTYPE');
         setUsbTTypeSelection(1);
       } else {
-        setLcdMessage('TIPO S:\nNO DISPONIBLE');
+        setUsbTypeMode('S');
+        setScreenState('USB_TTYPE');
+        setUsbTTypeSelection(1);
       }
       return;
     }
@@ -1748,6 +1756,7 @@ export default function App() {
       setScreenState('USB_TTYPE');
     } else if (screenState === 'USB_TTYPE') {
       setScreenState('USB_MENU');
+      setUsbMenuSelection(usbTypeMode === 'S' ? 2 : 1);
     } else if (screenState === 'USB_MENU') {
       setScreenState('ROOT');
     } else if (screenState === 'TILT') {
@@ -1980,7 +1989,7 @@ export default function App() {
       } else if (fNum === 2) {
         // F2=[USB] -> Menú USB
         setScreenState('USB_MENU');
-        setUsbMenuSelection(1);
+        setUsbMenuSelection(2);
       } else if (fNum === 3) {
         // F3=[DATO] -> menú DATO
         setScreenState('DATO_MENU');
@@ -2090,7 +2099,7 @@ export default function App() {
         } else if (fNum === 2) {
           // 3. Acceso al Menú USB desde Pág 2
           setScreenState('USB_MENU');
-          setUsbMenuSelection(1);
+          setUsbMenuSelection(2);
         } else if (fNum === 3) {
           setScreenState('TILT');
         } else if (fNum === 4) {
@@ -4579,12 +4588,9 @@ export default function App() {
                                   key={item.id}
                                   onClick={() => {
                                     setUsbMenuSelection(item.id);
-                                    if (item.id === 1) {
-                                      setScreenState('USB_TTYPE');
-                                      setUsbTTypeSelection(1);
-                                    } else {
-                                      setLcdMessage('TIPO S:\nNO DISPONIBLE');
-                                    }
+                                    setUsbTypeMode(item.id === 1 ? 'T' : 'S');
+                                    setScreenState('USB_TTYPE');
+                                    setUsbTTypeSelection(1);
                                   }}
                                   className={`px-2 py-1 rounded cursor-pointer flex items-center justify-between text-xs ${
                                     isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
@@ -4596,17 +4602,17 @@ export default function App() {
                               );
                             })}
                           </div>
-                          <div className="text-[9px] text-neutral-700 text-center pt-2 font-sans">
-                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          <div className="text-[10px] text-neutral-800 text-center pt-2 font-mono">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
                           </div>
                         </div>
                       )}
 
-                      {/* ESTADO 'USB_TTYPE': MENÚ USB PANTALLA 2 (TIPO T) */}
+                      {/* ESTADO 'USB_TTYPE': MENÚ USB PANTALLA 2 (TIPO T / TIPO S) */}
                       {screenState === 'USB_TTYPE' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
-                            <span>--- TIPO T ---</span>
+                            <span>--- TIPO {usbTypeMode} ---</span>
                             <span className="text-[10px] text-neutral-800 font-bold">[{usbTTypeSelection}/5]</span>
                           </div>
                           {[
@@ -4644,8 +4650,8 @@ export default function App() {
                               </div>
                             );
                           })}
-                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            ▲ / ▼: Seleccionar • [ENT]: Entrar
+                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-mono">
+                            ▲ ▼ Seleccionar - [ENT] Entrar
                           </div>
                         </div>
                       )}

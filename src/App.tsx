@@ -166,6 +166,7 @@ export const incrementPointId = (pto: string): string => {
 
 // 10 Slots de Trabajos por defecto Topcon ES-105 (* no exportados a USB)
 const DEFAULT_JOB_SLOTS = [
+  '*GRAMA',
   '*PROYECTO01',
   '*PRUEBA',
   '*PROYECTO1',
@@ -173,7 +174,6 @@ const DEFAULT_JOB_SLOTS = [
   '*CANTERA',
   '*OBRA_SUR',
   '*PARQUE',
-  '*JOB08',
   '*JOB09',
   '*JOB10'
 ];
@@ -215,7 +215,7 @@ export default function App() {
     PTO: 'BM-1',
   });
 
-  const [jobName, setJobName] = useState<string>('PROYECTO01');
+  const [jobName, setJobName] = useState<string>('GRAMA');
   const [coordJobName, setCoordJobName] = useState<string>('PROYECTO1');
 
   // Gestión de Trabajos (Menú TRABJ): Sistema inicializado siempre con 10 slots
@@ -1399,12 +1399,22 @@ export default function App() {
       return;
     }
 
-    // 4. Borrar TRABJ - Selección y confirmación con [ENT]
-    // LÓGICA ESTRICTA: El slot NO se elimina de la lista de 10, sino que recicla su nombre original predeterminado (JOB01..JOB10) sin asterisco.
-    if (screenState === 'JOB_DELETE_LIST' || screenState === 'JOB_DELETE_CONFIRM') {
+    // 4. Borrar TRABJ - Selección de trabajo en lista con [ENT]
+    if (screenState === 'JOB_DELETE_LIST') {
       const target = jobsList[selectedJobIdx];
       if (target) {
         setJobDeleteTarget(target);
+        setScreenState('JOB_DELETE_CONFIRM');
+      }
+      return;
+    }
+
+    // 4. Borrar TRABJ - Confirmación de borrado con [ENT] o F4=[SI]
+    // LÓGICA ESTRICTA: El trabajo NO se elimina de la lista principal.
+    // Se borran únicamente los datos de puntos del trabajo y se revierte al nombre original por defecto (JOB01..JOB10).
+    if (screenState === 'JOB_DELETE_CONFIRM') {
+      const target = jobDeleteTarget || jobsList[selectedJobIdx];
+      if (target) {
         const defaultSlotName = `JOB${String(selectedJobIdx + 1).padStart(2, '0')}`;
         setJobsList(prev => {
           const nextList = [...prev];
@@ -1413,18 +1423,17 @@ export default function App() {
         });
         if (jobName.replace(/^\*/, '') === target.replace(/^\*/, '')) {
           setJobName(defaultSlotName);
+          setPoints([]);
         }
         if (coordJobName.replace(/^\*/, '') === target.replace(/^\*/, '')) {
           setCoordJobName(defaultSlotName);
         }
         playLaserBeep();
-        setLcdMessage(`${target}\nBORRADO`);
+        setLcdMessage(`${target.replace(/^\*/, '')}\nBORRADO`);
         setTimeout(() => {
           setLcdMessage(null);
-          if (screenState === 'JOB_DELETE_CONFIRM') {
-            setScreenState('JOB_DELETE_LIST');
-          }
-        }, 1200);
+          setScreenState('JOB_DELETE_LIST');
+        }, 1000);
       }
       return;
     }
@@ -3490,7 +3499,14 @@ export default function App() {
                                 return (
                                   <div
                                     key={job + globalIdx}
-                                    onClick={() => setSelectedJobIdx(globalIdx)}
+                                    onClick={() => {
+                                      if (selectedJobIdx === globalIdx) {
+                                        setJobDeleteTarget(job);
+                                        setScreenState('JOB_DELETE_CONFIRM');
+                                      } else {
+                                        setSelectedJobIdx(globalIdx);
+                                      }
+                                    }}
                                     className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
                                       isSelected
                                         ? 'bg-neutral-900 text-[#9CA3AF] font-black'
@@ -3512,15 +3528,18 @@ export default function App() {
 
                       {/* 4. ESTADO 'JOB_DELETE_CONFIRM': AVISO DE CONFIRMACIÓN CON [NO] Y [SI] */}
                       {screenState === 'JOB_DELETE_CONFIRM' && (
-                        <div className="space-y-2 font-mono text-xs px-1 py-3 text-center">
-                          <div className="font-bold text-xs text-neutral-950 uppercase border-b border-neutral-800/30 pb-1">
-                            CONFIRMAR BORRADO
+                        <div className="flex flex-col items-center justify-center h-full py-4 space-y-1.5 font-mono text-center">
+                          <div className="text-base font-bold text-neutral-950 truncate max-w-[90%]">
+                            {jobDeleteTarget ? jobDeleteTarget.replace(/^\*/, '') : 'GRAMA'}
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] p-2.5 rounded font-black text-xs shadow-inner truncate max-w-full overflow-hidden">
-                            {jobDeleteTarget} borrado Confir ?
+                          <div className="text-xs font-semibold text-neutral-900">
+                            borrado
                           </div>
-                          <div className="text-[10px] text-neutral-800 font-bold font-sans pt-1">
-                            F3: [NO] • F4: [SI]
+                          <div className="text-xs font-semibold text-neutral-900">
+                            Confir ?
+                          </div>
+                          <div className="text-[10px] text-neutral-700 font-sans pt-2">
+                            F3=[NO] • F4=[SI]
                           </div>
                         </div>
                       )}

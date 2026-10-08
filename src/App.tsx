@@ -186,7 +186,7 @@ export default function App() {
     N: 1000.0,
     E: 1000.0,
     Z: 100.0,
-    PTO: 'EST-1',
+    PTO: 'PTO 1',
     HI: 1.471,
   });
 
@@ -1072,7 +1072,6 @@ export default function App() {
       screenState === 'TOPO_NOTA' ||
       screenState === 'TOPO_VER' ||
       screenState === 'OCC_LOAD_LIST' ||
-      screenState === 'OCC_ACLER' ||
       screenState === 'KNOWN_DEL' ||
       screenState === 'KNOWN_DEL_CONFIRM' ||
       screenState === 'KNOWN_VIEW' ||
@@ -1502,19 +1501,13 @@ export default function App() {
       return;
     }
 
-    // Formulario de Estacionamiento (12 campos con scroll)
+    // Formulario de Estacionamiento (Y0, X0, Z0, PTO, HI)
     if (screenState === 'OCC_ORIEN') {
       commitCurrentField();
-      if (activeField < 11) {
-        setActiveField(f => {
-          const next = f + 1;
-          if (next >= 4) setOccPage(2);
-          else setOccPage(1);
-          return next;
-        });
+      if (activeField < 4) {
+        setActiveField(f => f + 1);
       } else {
         setActiveField(0);
-        setOccPage(1);
         setLcdMessage('DATOS ESTACIÓN\nGUARDADOS');
       }
       return;
@@ -1925,20 +1918,10 @@ export default function App() {
 
     if (screenState === 'OCC_ORIEN') {
       if (dir === 'UP') {
-        setActiveField(f => {
-          const next = f > 0 ? f - 1 : 11;
-          if (next >= 4) setOccPage(2);
-          else setOccPage(1);
-          return next;
-        });
+        setActiveField(f => (f > 0 ? f - 1 : 4));
       }
       if (dir === 'DOWN') {
-        setActiveField(f => {
-          const next = f < 11 ? f + 1 : 0;
-          if (next >= 4) setOccPage(2);
-          else setOccPage(1);
-          return next;
-        });
+        setActiveField(f => (f < 4 ? f + 1 : 0));
       }
     } else if (screenState === 'ERXYZ') {
       if (dir === 'UP') setActiveField(f => (f > 0 ? f - 1 : 3));
@@ -2320,33 +2303,24 @@ export default function App() {
       return;
     }
 
-    // Estacionamiento: F1=[CARG], F2=[], F3=[E.RXYZ], F4=[REG] (Pág 1)
-    // En Pág 2: F1=[CARG], F2=[ACLE.R], F3=[E.RXYZ], F4=[TRISEC]
+    // Estacionamiento: F1=[CARG], F2=[ACLE.R], F3=[E.RXYZ], F4=[TRISEC]
     if (screenState === 'OCC_ORIEN') {
       if (fNum === 1) {
         // F1=[CARG] -> Flujo de Carga (listando PTO 1, PTO 2)
         setScreenState('OCC_LOAD_LIST');
         setSelectedOccLoadIdx(0);
       } else if (fNum === 2) {
-        if (occPage === 2) {
-          // F2=[ACLE.R]
-          setScreenState('OCC_ACLER');
-        }
+        // F2=[ACLE.R] -> Pantalla de Configuración ACLE.R
+        setInputBuffer('');
+        setScreenState('OCC_ACLER');
       } else if (fNum === 3) {
         // F3=[E.RXYZ]
         setScreenState('ERXYZ');
         setActiveField(0);
       } else if (fNum === 4) {
-        if (occPage === 2) {
-          // F4=[TRISEC]
-          setScreenState('OCC_TRISEC');
-          setTrisecSelection(2);
-        } else {
-          // F4=[REG]
-          commitCurrentField();
-          setLcdMessage('ESTACIÓN FIJADA');
-          setScreenState('COORD_MENU');
-        }
+        // F4=[TRISEC]
+        setScreenState('OCC_TRISEC');
+        setTrisecSelection(2);
       }
       return;
     }
@@ -2684,10 +2658,7 @@ export default function App() {
       case 'SELECT_KNOWN_PT':
         return ['ANT', 'SIG', 'ESC', 'CARG'];
       case 'OCC_ORIEN':
-        if (occPage === 2) {
-          return ['CARG', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
-        }
-        return ['CARG', '', 'E.RXYZ', 'REG'];
+        return ['CARG', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
       case 'ERXYZ':
         return ['CARG', '', 'AZIM', 'OK'];
       case 'CHECK_BS':
@@ -4149,10 +4120,9 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, PTO, HI + CAMPOS ATMOSFÉRICOS CON SCROLL) */}
+                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, PTO 1, HI) */}
                       {screenState === 'OCC_ORIEN' && (() => {
-                        const isP1 = occPage === 1;
-                        const page1Items = [
+                        const stationItems = [
                           {
                             label: 'Y0',
                             fieldIdx: 0,
@@ -4178,16 +4148,8 @@ export default function App() {
                             label: 'PTO',
                             fieldIdx: 3,
                             display: activeField === 3
-                              ? `${inputBuffer !== '' ? inputBuffer : (station.PTO || 'EST-1')}_`
-                              : (station.PTO || 'EST-1')
-                          }
-                        ];
-
-                        const page2Items = [
-                          {
-                            label: 'PTO',
-                            fieldIdx: 3,
-                            display: station.PTO || 'EST-1'
+                              ? `${inputBuffer !== '' ? inputBuffer : (station.PTO || 'PTO 1')}_`
+                              : (station.PTO || 'PTO 1')
                           },
                           {
                             label: 'HI',
@@ -4195,24 +4157,8 @@ export default function App() {
                             display: activeField === 4
                               ? `${inputBuffer !== '' ? inputBuffer : station.HI.toFixed(3)}_`
                               : `${station.HI.toFixed(3)} m`
-                          },
-                          {
-                            label: 'Cd',
-                            fieldIdx: 5,
-                            display: activeField === 5
-                              ? `${inputBuffer !== '' ? inputBuffer : stationAtm.CD}_`
-                              : stationAtm.CD
-                          },
-                          {
-                            label: 'Operador',
-                            fieldIdx: 6,
-                            display: activeField === 6
-                              ? `${inputBuffer !== '' ? inputBuffer : stationAtm.operador}_`
-                              : stationAtm.operador
                           }
                         ];
-
-                        const currentItems = isP1 ? page1Items : page2Items;
 
                         return (
                           <div className="space-y-0.5 font-mono text-xs">
@@ -4223,7 +4169,7 @@ export default function App() {
                               </div>
                             </div>
                             <div className="space-y-0.5 py-0.5">
-                              {currentItems.map(item => {
+                              {stationItems.map(item => {
                                 const isCur = activeField === item.fieldIdx;
                                 return (
                                   <div
@@ -4245,9 +4191,7 @@ export default function App() {
                               })}
                             </div>
                             <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                              {isP1
-                                ? 'F1=[CARG] • F3=[E.RXYZ] • F4=[REG]'
-                                : 'F1=[CARG] • F2=[ACLE.R] • F3=[E.RXYZ] • F4=[TRISEC]'}
+                              F1=[CARG] • F2=[ACLE.R] • F3=[E.RXYZ] • F4=[TRISEC]
                             </div>
                           </div>
                         );
@@ -4324,27 +4268,29 @@ export default function App() {
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
                             <span>ACLE.R</span>
-                            <span className="text-[10px] font-bold">PTO: {backsight.PTO || 'BS-1'}</span>
                           </div>
-                          <div className="space-y-0.5 bg-black/5 p-1.5 rounded text-xs">
-                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/10">
-                              <span>Pto. Ref.</span>
-                              <span className="font-bold">{backsight.PTO || 'BS-1'}</span>
+                          <div className="space-y-1 bg-black/5 p-1.5 rounded text-xs text-left">
+                            <div className="text-left font-mono py-0.5 border-b border-neutral-800/10">
+                              Pto. Ref.
                             </div>
-                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/10">
-                              <span>Lect.Ref.</span>
-                              <span className="font-bold font-mono">0°00'00"</span>
+                            <div className="text-left font-mono py-0.5 border-b border-neutral-800/10">
+                              Lect.Ref
                             </div>
-                            <div className="py-0.5 border-b border-neutral-800/10 font-bold text-neutral-900">
+                            <div className="text-left font-mono py-0.5 border-b border-neutral-800/10 font-bold text-neutral-900">
                               AZ Rango exced.
                             </div>
-                            <div className="flex justify-between items-center py-0.5">
-                              <span>HA-D</span>
-                              <span className="font-mono font-bold">{formatDMS(checkBsData.haD || 0)}</span>
+                            <div className="text-left font-mono py-0.5 border-b border-neutral-800/10">
+                              HA-D
+                            </div>
+                            <div className="flex items-center gap-2 text-left font-mono py-0.5">
+                              <span className="shrink-0">HA-D</span>
+                              <span className="inline-flex items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 min-w-[70px] h-[18px] rounded-sm shadow-inner font-mono text-[11px] font-bold">
+                                {inputBuffer !== '' ? `${inputBuffer}_` : <span className="inline-block w-1.5 h-3 bg-[#9CA3AF]/80 animate-pulse" />}
+                              </span>
                             </div>
                           </div>
                           <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            F1=[REG] • F4=[OK] ComPen
+                            F1=[REG] • F4=[OK]
                           </div>
                         </div>
                       )}

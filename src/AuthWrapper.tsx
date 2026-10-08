@@ -59,6 +59,81 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     );
   }
 
+  // Función auxiliar robusta para realizar peticiones a la API con fallback y lectura segura de JSON
+  const sendApiRequest = async (endpoint: string, body: Record<string, unknown>) => {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      // Si da 404 en la ruta relativa /api (ej. en Vite dev sin proxy activo), reintentar directamente a http://localhost:8000
+      if (response.status === 404 && endpoint.startsWith('/api')) {
+        try {
+          const directRes = await fetch(`http://localhost:8000${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(body)
+          });
+          if (directRes.ok || directRes.status !== 404) {
+            response = directRes;
+          }
+        } catch {
+          // Mantener la respuesta original si el fallback no responde
+        }
+      }
+    } catch {
+      // Si la conexión falló a nivel red con /api, intentar conectar directamente con http://localhost:8000
+      if (endpoint.startsWith('/api')) {
+        try {
+          response = await fetch(`http://localhost:8000${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(body)
+          });
+        } catch {
+          throw new Error('No se pudo conectar con el servidor de autenticación (http://localhost:8000). Asegúrate de que el backend esté encendido.');
+        }
+      } else {
+        throw new Error('No se pudo conectar con el servidor de autenticación.');
+      }
+    }
+
+    // Lectura segura del cuerpo como texto para evitar "Unexpected end of JSON input"
+    const responseText = await response.text();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let data: any = {};
+    if (responseText && responseText.trim().length > 0) {
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        data = { message: responseText };
+      }
+    }
+
+    if (!response.ok) {
+      const errorDetail = Array.isArray(data?.detail)
+        ? data.detail.map((item: { msg?: string }) => item.msg || 'Dato inválido').join(', ')
+        : (typeof data?.detail === 'string'
+            ? data.detail
+            : (data?.message || data?.error || (response.status === 401 ? 'Credenciales inválidas. Verifica tu correo y contraseña.' : (response.status === 404 ? 'Servicio no encontrado (/api). Verifica la conexión con el backend.' : `Error del servidor (${response.status})`))));
+      throw new Error(errorDetail);
+    }
+
+    return data;
+  };
+
   // Petición de Inicio de Sesión (Login)
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,23 +142,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ email, password })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        const errorDetail = Array.isArray(data.detail)
-          ? data.detail.map((item: { msg?: string }) => item.msg || 'Dato inválido').join(', ')
-          : (typeof data.detail === 'string' ? data.detail : (data.message || data.error || 'Credenciales incorrectas o error en el servidor'));
-        throw new Error(errorDetail);
-      }
+      const data = await sendApiRequest('/api/login', { email, password });
 
       const receivedToken = data.access_token || data.token;
       if (!receivedToken) {
@@ -115,30 +174,14 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          nombre,
-          name: nombre,
-          email,
-          password,
-          codigo_invitacion: codigoInvitacion,
-          auth_code: codigoInvitacion
-        })
+      const data = await sendApiRequest('/api/register', {
+        nombre,
+        name: nombre,
+        email,
+        password,
+        codigo_invitacion: codigoInvitacion,
+        auth_code: codigoInvitacion
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        const errorDetail = Array.isArray(data.detail)
-          ? data.detail.map((item: { msg?: string }) => item.msg || 'Dato inválido').join(', ')
-          : (typeof data.detail === 'string' ? data.detail : (data.message || data.error || 'No se pudo completar el registro'));
-        throw new Error(errorDetail);
-      }
 
       // Registro exitoso: cambiar a modo Login y mostrar mensaje de éxito
       setIsLoginMode(true);

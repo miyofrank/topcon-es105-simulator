@@ -4,8 +4,8 @@
   body {
     margin: 0;
     padding: 0;
-    background-color: #0f172a;
-    color: #f8fafc;
+    background-color: #F3EFE7;
+    color: #26231E;
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   }
 }
@@ -23,12 +23,12 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #E8E2D5;
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #C7BEAF;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #AFA492;
 }

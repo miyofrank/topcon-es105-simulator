@@ -2859,18 +2859,23 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-neutral-950 text-slate-100 antialiased select-none font-sans justify-between">
+    <div className="flex flex-col min-h-screen bg-[#F3EFE7] text-[#26231E] antialiased select-none font-sans justify-between">
       
-      {/* BARRA SUPERIOR MINIMALISTA */}
-      <header className="border-b border-neutral-800 bg-neutral-900/90 px-5 py-2.5 backdrop-blur flex items-center justify-between shadow-sm">
+      {/* BARRA SUPERIOR CON LOGO OFICIAL, FONDO GRIS-CREMA Y MOSTAZA */}
+      <header className="border-b border-[#DDD6C7] bg-[#FAF8F5]/95 px-5 py-2.5 backdrop-blur flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="bg-amber-500 text-neutral-950 font-black px-2.5 py-0.5 rounded text-xs tracking-wider shadow">
+          <img
+            src="/topcon-logo.jpg"
+            alt="Topcon ES-105"
+            className="w-9 h-9 rounded-full object-cover border-2 border-[#D99414] shadow-xs"
+          />
+          <div className="bg-[#D99414] text-white font-black px-2.5 py-0.5 rounded text-xs tracking-wider shadow-xs">
             TOPCON
           </div>
           <div>
-            <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+            <h1 className="text-sm font-bold text-[#26231E] flex items-center gap-2">
               Emulador Físico Topcon ES-105
-              <span className="text-xs font-mono font-normal bg-neutral-800 text-amber-400 px-2 py-0.5 rounded border border-neutral-700">
+              <span className="text-xs font-mono font-medium bg-[#EFEAE0] text-[#945F03] px-2 py-0.5 rounded border border-[#DDD6C7]">
                 100% On-Board • Sin Interfaz Web
               </span>
             </h1>
@@ -2880,10 +2885,10 @@ export default function App() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowKeyboardHelp(k => !k)}
-            className="p-1.5 rounded-lg border border-neutral-700 bg-neutral-800 text-slate-300 hover:text-white text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg border border-[#DDD6C7] bg-[#EFEAE0] hover:bg-white text-[#544E43] hover:text-[#26231E] text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
             title="Ver controles"
           >
-            <Keyboard size={14} className="text-amber-400" />
+            <Keyboard size={14} className="text-[#D99414]" />
             <span className="hidden sm:inline">Guía de Teclas</span>
           </button>
 
@@ -2891,12 +2896,12 @@ export default function App() {
             onClick={() => setSoundEnabled(s => !s)}
             className={`p-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
               soundEnabled
-                ? 'bg-neutral-800 border-neutral-700 text-amber-400'
-                : 'bg-neutral-900 border-neutral-800 text-slate-500'
+                ? 'bg-[#EFEAE0] border-[#D99414]/50 text-[#945F03]'
+                : 'bg-[#F3EFE7] border-[#DDD6C7] text-[#8C8373]'
             }`}
             title="Audio de zumbador físico"
           >
-            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            {soundEnabled ? <Volume2 size={14} className="text-[#D99414]" /> : <VolumeX size={14} />}
             <span className="hidden sm:inline">{soundEnabled ? 'Audio ON' : 'Audio OFF'}</span>
           </button>
         </div>
@@ -2904,23 +2909,23 @@ export default function App() {
 
       {/* MODAL GUÍA DE OPERACIÓN */}
       {showKeyboardHelp && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                <Keyboard size={16} />
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-[#FAF8F5] border border-[#DDD6C7] rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl animate-in zoom-in-95 text-[#26231E]">
+            <div className="flex items-center justify-between border-b border-[#E8E2D5] pb-2">
+              <h3 className="text-sm font-bold text-[#945F03] flex items-center gap-2">
+                <Keyboard size={16} className="text-[#D99414]" />
                 Instrucciones de Operación en el Equipo
               </h3>
-              <button onClick={() => setShowKeyboardHelp(false)} className="text-slate-400 hover:text-white text-sm cursor-pointer">
+              <button onClick={() => setShowKeyboardHelp(false)} className="text-[#8C8373] hover:text-[#26231E] text-sm cursor-pointer">
                 ✕
               </button>
             </div>
-            <div className="space-y-2 text-xs text-slate-300 leading-relaxed font-sans">
-              <p>• <b>Arranque:</b> Al encender, el LCD muestra el Nivel Electrónico. Pulsa <b className="text-amber-400">[F1 OK]</b> para ingresar.</p>
-              <p>• <b>Menú DATO y USB:</b> Pulsa <b className="text-rose-400">[ESC]</b> en la pantalla principal. Entra a <b className="text-amber-400">1. TRABAJO</b> para nombrar el proyecto o a <b className="text-emerald-400">3. EXPORTAR A USB</b> para descargar el CSV.</p>
-              <p>• <b>Botón [SFT]:</b> Pulsa <b className="text-amber-400">[SFT]</b> para ciclar entre Prisma, Tarjeta y Lectura Directa.</p>
+            <div className="space-y-2 text-xs text-[#544E43] leading-relaxed font-sans">
+              <p>• <b>Arranque:</b> Al encender, el LCD muestra el Nivel Electrónico. Pulsa <b className="text-[#945F03]">[F1 OK]</b> para ingresar.</p>
+              <p>• <b>Menú DATO y USB:</b> Pulsa <b className="text-rose-600">[ESC]</b> en la pantalla principal. Entra a <b className="text-[#945F03]">1. TRABAJO</b> para nombrar el proyecto o a <b className="text-emerald-700">3. EXPORTAR A USB</b> para descargar el CSV.</p>
+              <p>• <b>Botón [SFT]:</b> Pulsa <b className="text-[#945F03]">[SFT]</b> para ciclar entre Prisma, Tarjeta y Lectura Directa.</p>
               <p>• <b>Botón [FUNC]:</b> Alterna las etiquetas F1-F4 entre Pág 1 y Pág 2.</p>
-              <p>• <b>Levantamiento:</b> En Observación, pulsa el botón físico <b className="text-amber-400">[F3 AUTO]</b> para disparar y auto-incrementar el PTO.</p>
+              <p>• <b>Levantamiento:</b> En Observación, pulsa el botón físico <b className="text-[#945F03]">[F3 AUTO]</b> para disparar y auto-incrementar el PTO.</p>
             </div>
           </div>
         </div>
@@ -5029,22 +5034,22 @@ export default function App() {
         {/* ============================================================== */}
         {/* PANEL DE REGULADORES: SIMULACIÓN DEL MUNDO FÍSICO EXTERIOR     */}
         {/* ============================================================== */}
-        <aside className="w-full max-w-[420px] bg-neutral-900/95 border border-neutral-800 p-5 rounded-2xl shadow-2xl flex flex-col gap-5">
-          <div className="border-b border-neutral-800 pb-3">
-            <h2 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-              <Sliders size={16} />
+        <aside className="w-full max-w-[420px] bg-[#FAF8F5]/95 border border-[#DDD6C7] p-5 rounded-2xl shadow-xl flex flex-col gap-5 text-[#26231E]">
+          <div className="border-b border-[#E8E2D5] pb-3">
+            <h2 className="text-sm font-bold text-[#945F03] flex items-center gap-2">
+              <Sliders size={16} className="text-[#D99414]" />
               Reguladores de Terreno (Mundo Físico)
             </h2>
-            <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-              Alimenta al distanciómetro EDM. En Observación, pulsar <b className="text-amber-400">[F3 AUTO]</b> lee estos valores, calcula la posición y avanza el PTO.
+            <p className="text-xs text-[#6B6355] mt-1 leading-relaxed">
+              Alimenta al distanciómetro EDM. En Observación, pulsar <b className="text-[#945F03]">[F3 AUTO]</b> lee estos valores, calcula la posición y avanza el PTO.
             </p>
           </div>
 
           {/* 1. Ángulo Horizontal (HD) */}
-          <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+          <div className="space-y-1.5 bg-[#F3EFE7] p-3 rounded-xl border border-[#DDD6C7]">
             <div className="flex justify-between items-center text-xs">
-              <label className="font-semibold text-neutral-300">Ángulo Horizontal (HD)</label>
-              <span className="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              <label className="font-semibold text-[#544E43]">Ángulo Horizontal (HD)</label>
+              <span className="font-mono font-bold text-[#945F03] bg-[#D99414]/15 px-2 py-0.5 rounded border border-[#D99414]/30">
                 {formatDMS(envHD)}
               </span>
             </div>
@@ -5056,9 +5061,9 @@ export default function App() {
                 max="360"
                 value={envHD}
                 onChange={e => setEnvHD(parseFloat(e.target.value) || 0)}
-                className="w-full bg-neutral-900 border border-neutral-700 focus:border-amber-500 rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+                className="w-full bg-white border border-[#DDD6C7] focus:border-[#D99414] rounded px-2.5 py-1 text-xs font-mono text-[#26231E] outline-none"
               />
-              <span className="text-[11px] font-mono text-neutral-500">deg</span>
+              <span className="text-[11px] font-mono text-[#8C8373]">deg</span>
             </div>
             <input
               type="range"
@@ -5067,15 +5072,15 @@ export default function App() {
               step="0.1"
               value={envHD}
               onChange={e => setEnvHD(parseFloat(e.target.value))}
-              className="w-full accent-amber-500 cursor-pointer"
+              className="w-full accent-[#D99414] cursor-pointer"
             />
           </div>
 
           {/* 2. Ángulo Cenital (V) */}
-          <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+          <div className="space-y-1.5 bg-[#F3EFE7] p-3 rounded-xl border border-[#DDD6C7]">
             <div className="flex justify-between items-center text-xs">
-              <label className="font-semibold text-neutral-300">Ángulo Cenital (V)</label>
-              <span className="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              <label className="font-semibold text-[#544E43]">Ángulo Cenital (V)</label>
+              <span className="font-mono font-bold text-[#945F03] bg-[#D99414]/15 px-2 py-0.5 rounded border border-[#D99414]/30">
                 {formatDMS(envV)}
               </span>
             </div>
@@ -5087,9 +5092,9 @@ export default function App() {
                 max="135"
                 value={envV}
                 onChange={e => setEnvV(parseFloat(e.target.value) || 90)}
-                className="w-full bg-neutral-900 border border-neutral-700 focus:border-amber-500 rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+                className="w-full bg-white border border-[#DDD6C7] focus:border-[#D99414] rounded px-2.5 py-1 text-xs font-mono text-[#26231E] outline-none"
               />
-              <span className="text-[11px] font-mono text-neutral-500">deg</span>
+              <span className="text-[11px] font-mono text-[#8C8373]">deg</span>
             </div>
             <input
               type="range"
@@ -5098,20 +5103,20 @@ export default function App() {
               step="0.1"
               value={envV}
               onChange={e => setEnvV(parseFloat(e.target.value))}
-              className="w-full accent-amber-500 cursor-pointer"
+              className="w-full accent-[#D99414] cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-neutral-500">
+            <div className="flex justify-between text-[10px] text-[#8C8373]">
               <span>60° (Elevación)</span>
-              <span className="text-amber-400 font-bold">90° (Horiz.)</span>
+              <span className="text-[#945F03] font-bold">90° (Horiz.)</span>
               <span>120° (Depresión)</span>
             </div>
           </div>
 
           {/* 3. Distancia Inclinada Real (SD) */}
-          <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+          <div className="space-y-1.5 bg-[#F3EFE7] p-3 rounded-xl border border-[#DDD6C7]">
             <div className="flex justify-between items-center text-xs">
-              <label className="font-semibold text-neutral-300">Distancia Inclinada (SD)</label>
-              <span className="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              <label className="font-semibold text-[#544E43]">Distancia Inclinada (SD)</label>
+              <span className="font-mono font-bold text-[#945F03] bg-[#D99414]/15 px-2 py-0.5 rounded border border-[#D99414]/30">
                 {envSD.toFixed(3)} m
               </span>
             </div>
@@ -5123,9 +5128,9 @@ export default function App() {
                 max="500"
                 value={envSD}
                 onChange={e => setEnvSD(parseFloat(e.target.value) || 1)}
-                className="w-full bg-neutral-900 border border-neutral-700 focus:border-amber-500 rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+                className="w-full bg-white border border-[#DDD6C7] focus:border-[#D99414] rounded px-2.5 py-1 text-xs font-mono text-[#26231E] outline-none"
               />
-              <span className="text-[11px] font-mono text-neutral-500">m</span>
+              <span className="text-[11px] font-mono text-[#8C8373]">m</span>
             </div>
             <input
               type="range"
@@ -5134,15 +5139,15 @@ export default function App() {
               step="0.5"
               value={envSD}
               onChange={e => setEnvSD(parseFloat(e.target.value))}
-              className="w-full accent-amber-500 cursor-pointer"
+              className="w-full accent-[#D99414] cursor-pointer"
             />
           </div>
 
           {/* 4. Altura del Prisma (HR) */}
-          <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+          <div className="space-y-1.5 bg-[#F3EFE7] p-3 rounded-xl border border-[#DDD6C7]">
             <div className="flex justify-between items-center text-xs">
-              <label className="font-semibold text-neutral-300">Altura del Prisma (HR)</label>
-              <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              <label className="font-semibold text-[#544E43]">Altura del Prisma (HR)</label>
+              <span className="font-mono font-bold text-emerald-700 bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/30">
                 {target.HR.toFixed(3)} m
               </span>
             </div>
@@ -5154,9 +5159,9 @@ export default function App() {
                 max="5"
                 value={target.HR}
                 onChange={e => setTarget(prev => ({ ...prev, HR: parseFloat(e.target.value) || 0 }))}
-                className="w-full bg-neutral-900 border border-neutral-700 focus:border-emerald-500 rounded px-2.5 py-1 text-xs font-mono text-white outline-none"
+                className="w-full bg-white border border-[#DDD6C7] focus:border-emerald-600 rounded px-2.5 py-1 text-xs font-mono text-[#26231E] outline-none"
               />
-              <span className="text-[11px] font-mono text-neutral-500">m</span>
+              <span className="text-[11px] font-mono text-[#8C8373]">m</span>
             </div>
             <input
               type="range"
@@ -5165,26 +5170,26 @@ export default function App() {
               step="0.01"
               value={target.HR}
               onChange={e => setTarget(prev => ({ ...prev, HR: parseFloat(e.target.value) || 0 }))}
-              className="w-full accent-emerald-500 cursor-pointer"
+              className="w-full accent-emerald-600 cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-neutral-500">
+            <div className="flex justify-between text-[10px] text-[#8C8373]">
               <span>0m (Suelo)</span>
-              <span className="text-emerald-400 font-bold">1.5m (Estándar)</span>
+              <span className="text-emerald-700 font-bold">1.5m (Estándar)</span>
               <span>5m (Max)</span>
             </div>
           </div>
 
           {/* Estado de Memoria y Descarga USB */}
-          <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-xs space-y-1">
-            <div className="flex justify-between text-neutral-300">
+          <div className="bg-[#F3EFE7] p-3 rounded-xl border border-[#DDD6C7] text-xs space-y-1">
+            <div className="flex justify-between text-[#544E43]">
               <span>Trabajo On-Board:</span>
-              <span className="font-bold text-amber-400 font-mono">{jobName}</span>
+              <span className="font-bold text-[#945F03] font-mono">{jobName}</span>
             </div>
-            <div className="flex justify-between text-neutral-400 text-[11px]">
+            <div className="flex justify-between text-[#6B6355] text-[11px]">
               <span>Puntos en Memoria:</span>
-              <span className="font-mono text-emerald-400 font-bold">{points.length} puntos</span>
+              <span className="font-mono text-emerald-700 font-bold">{points.length} puntos</span>
             </div>
-            <div className="text-[10px] text-neutral-500 italic pt-1 border-t border-neutral-800/80">
+            <div className="text-[10px] text-[#8C8373] italic pt-1 border-t border-[#DDD6C7]">
               * Para exportar a USB: En MED (Pág 2 con [FUNC]) pulsa [F2 USB] &gt; 1. Guardar Datos &gt; Selecciona Trabajo &gt; 4. SSS(Coord).
             </div>
           </div>
@@ -5193,9 +5198,9 @@ export default function App() {
       </main>
 
       {/* FOOTER ACADÉMICO */}
-      <footer className="border-t border-neutral-800 bg-neutral-900/80 px-6 py-2 text-xs text-neutral-400 flex flex-wrap items-center justify-between gap-4">
+      <footer className="border-t border-[#DDD6C7] bg-[#FAF8F5]/90 px-6 py-2.5 text-xs text-[#6B6355] flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="text-neutral-300 font-semibold">Flujo de Campo Real:</span>
+          <span className="text-[#26231E] font-semibold">Flujo de Campo Real:</span>
           <span>1. Nivel [F1 OK]</span>
           <span>→</span>
           <span>2. Trabajo ([ESC] DATO)</span>
@@ -5204,7 +5209,7 @@ export default function App() {
           <span>→</span>
           <span>4. Radiar ([F3 AUTO])</span>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-neutral-500">
+        <div className="flex items-center gap-2 font-mono text-[11px] text-[#8C8373]">
           <span>TOPCON ES-105 • EDM SIN REFLECTOR 500M • PRISMA 4000M</span>
         </div>
       </footer>

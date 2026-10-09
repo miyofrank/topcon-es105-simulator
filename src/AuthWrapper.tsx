@@ -48,9 +48,9 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           <button
             onClick={handleLogout}
             title="Cerrar Sesión del Simulador"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-neutral-400 hover:text-amber-400 border border-neutral-700/60 hover:border-amber-500/40 text-xs font-semibold backdrop-blur-md shadow-lg transition-all duration-200 cursor-pointer group"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FAF8F5]/95 hover:bg-white text-[#544E43] hover:text-[#945F03] border border-[#DDD6C7] hover:border-[#D99414] text-xs font-semibold backdrop-blur-md shadow-md transition-all duration-200 cursor-pointer group"
           >
-            <LogOut size={13} className="text-neutral-400 group-hover:text-amber-400 transition-colors" />
+            <LogOut size={13} className="text-[#8C8373] group-hover:text-[#D99414] transition-colors" />
             <span>Cerrar Sesión</span>
           </button>
         </aside>
@@ -200,26 +200,30 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-950 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950 text-slate-100 font-sans relative overflow-hidden select-none">
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F3EFE7] text-[#26231E] font-sans relative overflow-hidden select-none">
       
-      {/* Fondos desenfocados ambientales en esquinas opuestas (Profundidad Antigravity) */}
-      <div className="absolute -top-24 -left-24 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Fondos desenfocados ambientales en esquinas opuestas (Tono Mostaza y Crema Pastel) */}
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-[#D99414]/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-[#E8DCC4]/60 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Tarjeta Glassmorphism Flotante */}
-      <div className="relative w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_50px_-12px_rgba(245,158,11,0.15)] rounded-3xl p-8 transition-all duration-300 z-10">
+      {/* Tarjeta Glassmorphism Flotante en Tono Pastel Crema */}
+      <div className="relative w-full max-w-md bg-[#FAF8F5]/95 backdrop-blur-xl border border-[#E2DDD1] shadow-[0_12px_45px_-10px_rgba(74,68,56,0.14)] rounded-3xl p-8 transition-all duration-300 z-10">
         
-        {/* Cabecera con Logo Tipográfico 'ES' y Título Dinámico */}
+        {/* Cabecera con Logo Oficial Topcon ES-105 y Título Dinámico */}
         <div className="flex flex-col items-center text-center space-y-3 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 font-black text-xl flex items-center justify-center shadow-lg shadow-amber-500/25 font-mono">
-            ES
+          <div className="relative group">
+            <img
+              src="/topcon-logo.jpg"
+              alt="Topcon ES-105 Total Station"
+              className="w-24 h-24 rounded-full object-cover shadow-lg border-2 border-[#D99414] ring-4 ring-[#F3EFE7] transition-transform duration-300 group-hover:scale-105"
+            />
           </div>
 
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-white">
+            <h1 className="text-2xl font-black tracking-tight text-[#26231E]">
               {isLoginMode ? 'Acceso al Simulador' : 'Crear Cuenta'}
             </h1>
-            <p className="text-xs text-neutral-400 pt-1">
+            <p className="text-xs text-[#6B6355] pt-1">
               {isLoginMode
                 ? 'Estación Total Topcon ES-105 • Sistema Académico'
                 : 'Registro de operador con código de autorización'}
@@ -227,8 +231,8 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           </div>
         </div>
 
-        {/* Pestañas de Alternancia (Tabs) */}
-        <div className="flex bg-neutral-900/70 p-1 rounded-2xl border border-white/5 mb-6 text-xs font-semibold">
+        {/* Pestañas de Alternancia (Tabs) en tonos pastel con acento mostaza */}
+        <div className="flex bg-[#EFEAE0] p-1 rounded-2xl border border-[#E2DDD1] mb-6 text-xs font-semibold">
           <button
             type="button"
             onClick={() => {
@@ -238,8 +242,8 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
             }}
             className={`flex-1 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
               isLoginMode
-                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold shadow-sm'
-                : 'text-neutral-400 hover:text-white'
+                ? 'bg-white text-[#945F03] border border-[#D99414]/40 font-bold shadow-xs'
+                : 'text-[#6B6355] hover:text-[#26231E]'
             }`}
           >
             Iniciar Sesión
@@ -253,8 +257,8 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
             }}
             className={`flex-1 py-2 rounded-xl transition-all duration-200 cursor-pointer ${
               !isLoginMode
-                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold shadow-sm'
-                : 'text-neutral-400 hover:text-white'
+                ? 'bg-white text-[#945F03] border border-[#D99414]/40 font-bold shadow-xs'
+                : 'text-[#6B6355] hover:text-[#26231E]'
             }`}
           >
             Crear Cuenta
@@ -263,16 +267,16 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
 
         {/* Alerta de Error */}
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2.5">
-            <AlertCircle size={16} className="shrink-0 text-rose-400" />
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2.5">
+            <AlertCircle size={16} className="shrink-0 text-rose-500" />
             <span className="leading-tight">{errorMessage}</span>
           </div>
         )}
 
         {/* Alerta de Éxito */}
         {successMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+          <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2.5">
+            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
             <span className="leading-tight">{successMessage}</span>
           </div>
         )}
@@ -283,18 +287,18 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           {/* Campo Nombre (Solo en Modo Registro) */}
           {!isLoginMode && (
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider block">
+              <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
                 Nombre Completo
               </label>
               <div className="relative">
-                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
                 <input
                   type="text"
                   required
                   placeholder="Ing. Topógrafo"
                   value={nombre}
                   onChange={e => setNombre(e.target.value)}
-                  className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                  className="w-full bg-white text-[#26231E] border border-[#DCD5C6] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#9C9485] shadow-xs"
                 />
               </div>
             </div>
@@ -302,36 +306,36 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
 
           {/* Campo Email */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider block">
+            <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
               Correo Electrónico
             </label>
             <div className="relative">
-              <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
               <input
                 type="email"
                 required
                 placeholder="operador@topografia.edu"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                className="w-full bg-white text-[#26231E] border border-[#DCD5C6] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#9C9485] shadow-xs"
               />
             </div>
           </div>
 
           {/* Campo Contraseña */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider block">
+            <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
               Contraseña
             </label>
             <div className="relative">
-              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
               <input
                 type="password"
                 required
                 placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-black/20 text-white border border-white/10 focus:border-amber-500/50 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-colors placeholder:text-neutral-500"
+                className="w-full bg-white text-[#26231E] border border-[#DCD5C6] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#9C9485] shadow-xs"
               />
             </div>
           </div>
@@ -340,36 +344,36 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           {!isLoginMode && (
             <div className="space-y-1.5 pt-1">
               <div className="flex justify-between items-center">
-                <label className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <KeyRound size={13} className="text-amber-400" />
+                <label className="text-[11px] font-bold text-[#945F03] uppercase tracking-wider flex items-center gap-1.5">
+                  <KeyRound size={13} className="text-[#D99414]" />
                   Código de Autorización
                 </label>
-                <span className="text-[9px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded font-mono font-bold">
+                <span className="text-[9px] bg-[#D99414]/15 text-[#945F03] border border-[#D99414]/30 px-1.5 py-0.2 rounded font-mono font-bold">
                   REQUERIDO
                 </span>
               </div>
               <div className="relative">
-                <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-400/70" />
+                <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#D99414]" />
                 <input
                   type="text"
                   required
                   placeholder="Ej. ES105-GEO-2026"
                   value={codigoInvitacion}
                   onChange={e => setCodigoInvitacion(e.target.value)}
-                  className="w-full bg-amber-500/5 border border-amber-500/30 text-amber-100 focus:border-amber-400 rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold outline-none transition-all placeholder:text-amber-500/40 shadow-inner"
+                  className="w-full bg-[#FFFBF0] border border-[#D99414]/40 text-[#734A02] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold outline-none transition-all placeholder:text-[#B57404]/50 shadow-inner"
                 />
               </div>
-              <p className="text-[10px] text-neutral-400 italic">
+              <p className="text-[10px] text-[#6B6355] italic">
                 Código institucional para habilitación de la consola.
               </p>
             </div>
           )}
 
-          {/* Botón Principal de Acción */}
+          {/* Botón Principal de Acción (Color Mostaza Topcon) */}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-slate-950 font-black text-xs tracking-wider uppercase shadow-[0_0_25px_rgba(245,158,11,0.25)] hover:shadow-[0_0_35px_rgba(245,158,11,0.45)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#D99414] to-[#DF961A] hover:from-[#C8850A] hover:to-[#D48806] text-white font-black text-xs tracking-wider uppercase shadow-[0_4px_16px_rgba(217,148,20,0.35)] hover:shadow-[0_6px_22px_rgba(217,148,20,0.45)] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (
               <>
@@ -386,9 +390,9 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
         </form>
 
         {/* Pie de Tarjeta */}
-        <div className="mt-6 pt-4 border-t border-white/5 text-center text-[10px] text-neutral-500 flex justify-between items-center font-mono">
+        <div className="mt-6 pt-4 border-t border-[#E8E2D5] text-center text-[10px] text-[#8C8373] flex justify-between items-center font-mono">
           <span>TOPCON ES-105 STATION</span>
-          <span className="text-neutral-400 font-bold">ON-BOARD OS</span>
+          <span className="text-[#544E43] font-bold">ON-BOARD OS</span>
         </div>
       </div>
     </div>

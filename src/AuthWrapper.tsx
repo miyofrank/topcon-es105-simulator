@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   Loader2,
   ArrowRight,
-  LogOut
+  LogOut,
+  ArrowLeft
 } from 'lucide-react';
 
 interface AuthWrapperProps {
@@ -20,6 +21,13 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   // 1. Estado de Sesión y Modo
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'));
   const [isLoginMode, setIsLoginMode] = useState<boolean>(true);
+
+  // 1B. Recuperación de contraseña: 'main' = Login/Registro, 'forgot' = pedir enlace, 'reset' = nueva contraseña
+  const [resetToken] = useState<string | null>(() => new URLSearchParams(window.location.search).get('reset_token'));
+  const [authView, setAuthView] = useState<'main' | 'forgot' | 'reset'>(() =>
+    new URLSearchParams(window.location.search).get('reset_token') ? 'reset' : 'main'
+  );
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
 
   // 2. Estados de Formulario
   const [nombre, setNombre] = useState<string>('');
@@ -39,8 +47,8 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     window.location.reload();
   };
 
-  // Si existe el token, retorna la app envuelta con el botón flotante discreto de Cerrar Sesión
-  if (token) {
+  // Si existe el token (y no se está abriendo un enlace de recuperación), retorna la app con el botón de Cerrar Sesión
+  if (token && authView !== 'reset') {
     return (
       <>
         {/* Botón Flotante y Discreto de Cerrar Sesión */}
@@ -199,6 +207,74 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
     }
   };
 
+  // Solicitar enlace de recuperación por correo
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsLoading(true);
+    try {
+      const data = await sendApiRequest('/api/forgot-password', { email });
+      setSuccessMessage(
+        data.mensaje || 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.'
+      );
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : 'No se pudo conectar con el servidor');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Guardar la nueva contraseña usando el token del enlace
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    if (password.length < 8) {
+      setErrorMessage('La contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMessage('Las contraseñas no coinciden.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const data = await sendApiRequest('/api/reset-password', {
+        token: resetToken,
+        new_password: password
+      });
+      // Limpiar el token de la URL y volver al login
+      window.history.replaceState({}, '', window.location.pathname);
+      localStorage.removeItem('token');
+      setToken(null);
+      setPassword('');
+      setConfirmPassword('');
+      setAuthView('main');
+      setIsLoginMode(true);
+      setSuccessMessage(data.mensaje || 'Contraseña actualizada. Ya puedes iniciar sesión.');
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : 'No se pudo conectar con el servidor');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const volverAlLogin = () => {
+    window.history.replaceState({}, '', window.location.pathname);
+    setAuthView('main');
+    setIsLoginMode(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setPassword('');
+    setConfirmPassword('');
+  };
+
+  const inputClass =
+    'w-full bg-white text-[#26231E] border border-[#DCD5C6] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#9C9485] shadow-xs';
+  const primaryButtonClass =
+    'w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#D99414] to-[#DF961A] hover:from-[#C8850A] hover:to-[#D48806] text-white font-black text-xs tracking-wider uppercase shadow-[0_4px_16px_rgba(217,148,20,0.35)] hover:shadow-[0_6px_22px_rgba(217,148,20,0.45)] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2';
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F3EFE7] text-[#26231E] font-sans relative overflow-hidden select-none">
       
@@ -221,17 +297,26 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
 
           <div>
             <h1 className="text-2xl font-black tracking-tight text-[#26231E]">
-              {isLoginMode ? 'Acceso al Simulador' : 'Crear Cuenta'}
+              {authView === 'forgot'
+                ? 'Recuperar Contraseña'
+                : authView === 'reset'
+                  ? 'Nueva Contraseña'
+                  : isLoginMode ? 'Acceso al Simulador' : 'Crear Cuenta'}
             </h1>
             <p className="text-xs text-[#6B6355] pt-1">
-              {isLoginMode
-                ? 'Estación Total Topcon ES-105 • Sistema Académico'
-                : 'Registro de operador con código de autorización'}
+              {authView === 'forgot'
+                ? 'Te enviaremos un enlace a tu correo para crear una nueva contraseña'
+                : authView === 'reset'
+                  ? 'Escribe tu nueva contraseña para el simulador'
+                  : isLoginMode
+                    ? 'Estación Total Topcon ES-105 • Sistema Académico'
+                    : 'Registro de operador con código de autorización'}
             </p>
           </div>
         </div>
 
         {/* Pestañas de Alternancia (Tabs) en tonos pastel con acento mostaza */}
+        {authView === 'main' && (
         <div className="flex bg-[#EFEAE0] p-1 rounded-2xl border border-[#E2DDD1] mb-6 text-xs font-semibold">
           <button
             type="button"
@@ -264,6 +349,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
             Crear Cuenta
           </button>
         </div>
+        )}
 
         {/* Alerta de Error */}
         {errorMessage && (
@@ -281,7 +367,110 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
           </div>
         )}
 
+        {/* Formulario: Solicitar enlace de recuperación */}
+        {authView === 'forgot' && (
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
+                Correo Electrónico
+              </label>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
+                <input
+                  type="email"
+                  required
+                  placeholder="operador@topografia.edu"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <button type="submit" disabled={isLoading} className={primaryButtonClass}>
+              {isLoading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Enviando...</span>
+                </>
+              ) : (
+                <>
+                  <span>Enviar enlace</span>
+                  <ArrowRight size={15} className="stroke-[2.5]" />
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={volverAlLogin}
+              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#6B6355] hover:text-[#945F03] cursor-pointer"
+            >
+              <ArrowLeft size={13} /> Volver a Iniciar Sesión
+            </button>
+          </form>
+        )}
+
+        {/* Formulario: Crear nueva contraseña (desde el enlace del correo) */}
+        {authView === 'reset' && (
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
+                Nueva Contraseña
+              </label>
+              <div className="relative">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  placeholder="Mínimo 8 caracteres"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-[#544E43] uppercase tracking-wider block">
+                Confirmar Contraseña
+              </label>
+              <div className="relative">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8C8373]" />
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  placeholder="Repite la contraseña"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <button type="submit" disabled={isLoading} className={primaryButtonClass}>
+              {isLoading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <span>Guardar contraseña</span>
+                  <ArrowRight size={15} className="stroke-[2.5]" />
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={volverAlLogin}
+              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-[#6B6355] hover:text-[#945F03] cursor-pointer"
+            >
+              <ArrowLeft size={13} /> Volver a Iniciar Sesión
+            </button>
+          </form>
+        )}
+
         {/* Formulario */}
+        {authView === 'main' && (
         <form onSubmit={isLoginMode ? handleLogin : handleRegister} className="space-y-4">
           
           {/* Campo Nombre (Solo en Modo Registro) */}
@@ -338,6 +527,21 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
                 className="w-full bg-white text-[#26231E] border border-[#DCD5C6] focus:border-[#D99414] focus:ring-2 focus:ring-[#D99414]/20 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none transition-all placeholder:text-[#9C9485] shadow-xs"
               />
             </div>
+            {isLoginMode && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthView('forgot');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className="text-[11px] font-semibold text-[#945F03] hover:text-[#D99414] hover:underline cursor-pointer"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Campo Especial: Código de Autorización (Solo en Modo Registro) */}
@@ -388,6 +592,7 @@ export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
             )}
           </button>
         </form>
+        )}
 
         {/* Pie de Tarjeta */}
         <div className="mt-6 pt-4 border-t border-[#E8E2D5] text-center text-[10px] text-[#8C8373] flex justify-between items-center font-mono">

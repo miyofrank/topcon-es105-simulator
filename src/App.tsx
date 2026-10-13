@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Battery,
-  BatteryLow,
-  BatteryMedium,
+  Lock,
   Sliders,
   Volume2,
   VolumeX,
@@ -125,7 +124,89 @@ type ScreenState =
   | 'TOPO_NOTA'
   | 'TOPO_VER'
   | 'EDM_MENU'
-  | 'DESPLZ_MENU';
+  | 'DESPLZ_MENU'
+  // --- Pantallas añadidas según corrección de usuario (12-10-2026) ---
+  | 'TRISEC_PT'     // Trisecn. 1ro Pto (GD / AZ / HA-D) tras ComPen
+  | 'TRISEC_AJ'     // Ajustes de Trisección (Obs cara 1/2, Z)
+  | 'CODE_LIST'     // Lista de códigos Cd (LIST)
+  | 'CODE_SEARCH'   // Búsqueda de código Cd (BUSC)
+  | 'CODE_ADD'      // Agregar código Cd (AGR -> Sob.escri?)
+  | 'VER_DETAIL'    // Detalle de un registro en TOPO > Ver
+  | 'TOPO_PTTRN'    // Dist*Coord: Num. SETs / Num. Obs / ObsdesP1/2 / PreenterPt
+  | 'TOPO_MODEL'    // Selec. Modelo Obs (PTTRN)
+  | 'REPL_OBS';     // Observación de replanteo (GD / AZ / HA-D)
+
+// Modo de entrada del teclado (cambia con SHIFT): Números, Letras o Signos
+type InputMode = 'NUM' | 'ALF' | 'SIM';
+
+// Contexto desde el que se abrió la lista de puntos (CARG / Ver)
+type PickContext = 'OCC' | 'BS' | 'REPL' | 'VER';
+
+// Contexto desde el que se abrió el compensador ComPen
+type CompenContext = 'MED' | 'TRISEC' | 'OBS' | 'REPL';
+
+// Registro de memoria tal como lo lista el equipo (Occ / PTO / Ref. / Crd)
+interface PointRecord {
+  tag: 'Occ' | 'PTO' | 'Ref.' | 'Crd';
+  PTO: string;
+  N: number;
+  E: number;
+  Z: number;
+  CD: string;
+}
+
+// Opciones de Clima y Viento (◄ ► en Estacionamiento)
+const CLIMA_OPTIONS = ['Fino', 'Nublado', 'Lluvia ligera', 'Lluvia', 'Nieve'];
+const VIENTO_OPTIONS = ['Calma', 'Suave', 'Ligero', 'Fuerte', 'Muy fuerte'];
+
+// Códigos Cd por defecto (lista provisional hasta confirmar con la clienta)
+const DEFAULT_CODES = ['TN', 'LIN', 'DREN', 'TL', 'CA', 'PMT', 'COL', 'CASE'];
+
+// Configuración EDM (tabla entregada por la clienta)
+const EDM_MODOS = ['Fino R', 'Fino S', 'PROM.fina', 'Rápido R', 'Rápido S', 'Tracking'];
+const EDM_REFLECTORES = ['Prisma', 'Diana', 'N-Prism'];
+const EDM_MANT_ILUM = ['Láser', 'Guía'];
+const EDM_LUZ_GUIA = ['1', '2', '3'];
+
+// Duración simulada de la medición de distancia según el modo EDM (ms)
+const EDM_DURATION: Record<string, number> = {
+  'Fino R': 2600,
+  'Fino S': 2200,
+  'PROM.fina': 3600,
+  'Rápido R': 1500,
+  'Rápido S': 1300,
+  Tracking: 1800
+};
+
+// Caracteres por tecla según el modo de entrada (ALF = letras, SIM = signos)
+const KEY_CHARS: Record<string, { ALF: string; SIM: string }> = {
+  '7': { ALF: 'ABC', SIM: '7' },
+  '8': { ALF: 'DEF', SIM: '8' },
+  '9': { ALF: 'GHI', SIM: '9' },
+  '4': { ALF: 'JKL', SIM: '4' },
+  '5': { ALF: 'MNO', SIM: '5' },
+  '6': { ALF: 'PQR', SIM: '6' },
+  '1': { ALF: 'STU', SIM: '1' },
+  '2': { ALF: 'VWX', SIM: '2' },
+  '3': { ALF: 'YZ', SIM: '!' },
+  '0': { ALF: ' ', SIM: '/_&' },
+  '.': { ALF: '.', SIM: '*?$' },
+  '-': { ALF: '-', SIM: '+-' }
+};
+
+// 10 puntos de coordenadas por defecto en memoria (Crd 1 ... Crd 10)
+const DEFAULT_CRD_POINTS: TopoPoint[] = [
+  { PTO: '1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'BASE' },
+  { PTO: '2', N: 1025.5, E: 1018.2, Z: 101.4, CD: 'REF' },
+  { PTO: '3', N: 1040.12, E: 995.37, Z: 100.85, CD: 'TN' },
+  { PTO: '4', N: 1058.64, E: 1012.9, Z: 101.12, CD: 'TN' },
+  { PTO: '5', N: 1063.2, E: 1041.55, Z: 101.63, CD: 'LIN' },
+  { PTO: '6', N: 1047.81, E: 1066.03, Z: 100.97, CD: 'LIN' },
+  { PTO: '7', N: 1021.45, E: 1072.4, Z: 100.42, CD: 'DREN' },
+  { PTO: '8', N: 996.3, E: 1058.77, Z: 99.88, CD: 'CA' },
+  { PTO: '9', N: 984.92, E: 1031.06, Z: 99.71, CD: 'TL' },
+  { PTO: '10', N: 990.15, E: 1007.64, Z: 99.95, CD: 'TN' }
+];
 
 // Conversión sexagesimal estándar topográfica (DD°MM'SS")
 export const formatDMS = (deg: number): string => {
@@ -164,6 +245,28 @@ export const incrementPointId = (pto: string): string => {
   return `${prefix}${padded}`;
 };
 
+// Entrada de ángulos al estilo Topcon: ddd.mmss (ej. 113.4558 = 113°45'58")
+export const parseDmsInput = (v: number): number => {
+  const sign = v < 0 ? -1 : 1;
+  const a = Math.abs(v);
+  const d = Math.floor(a);
+  const mmss = Math.round((a - d) * 10000);
+  const m = Math.floor(mmss / 100);
+  const sec = mmss % 100;
+  return sign * (d + Math.min(m, 59) / 60 + Math.min(sec, 59) / 3600);
+};
+
+// Manejadores de la capa de correcciones (ver sección 8)
+interface OverrideHandlers {
+  fkey: (f: 1 | 2 | 3 | 4) => boolean;
+  enter: () => boolean;
+  esc: () => boolean;
+  arrow: (dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => boolean;
+  key: (key: string) => boolean;
+  shift: () => void;
+  func: () => boolean;
+}
+
 // 10 Slots de Trabajos por defecto Topcon ES-105 (* no exportados a USB)
 const DEFAULT_JOB_SLOTS = [
   '*GRAMA',
@@ -178,6 +281,73 @@ const DEFAULT_JOB_SLOTS = [
   '*JOB10'
 ];
 
+// Slider monocromático estilo LCD (nivelación ComPen). Se arrastra con el ratón o el dedo.
+const LcdSlider = ({
+  orientation,
+  value,
+  min,
+  max,
+  onChange,
+  title
+}: {
+  orientation: 'horizontal' | 'vertical';
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+  title?: string;
+}) => {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const dragging = useRef(false);
+  const isH = orientation === 'horizontal';
+  const ratio = (value - min) / (max - min);
+
+  const updateFromPointer = (clientX: number, clientY: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    let t = isH ? (clientX - r.left) / r.width : 1 - (clientY - r.top) / r.height;
+    t = Math.max(0, Math.min(1, t));
+    onChange(Math.round(min + t * (max - min)));
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      title={title}
+      onPointerDown={e => {
+        (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+        dragging.current = true;
+        updateFromPointer(e.clientX, e.clientY);
+      }}
+      onPointerMove={e => { if (dragging.current) updateFromPointer(e.clientX, e.clientY); }}
+      onPointerUp={e => {
+        (e.currentTarget as HTMLDivElement).releasePointerCapture?.(e.pointerId);
+        dragging.current = false;
+      }}
+      onPointerCancel={() => { dragging.current = false; }}
+      className={`relative touch-none cursor-pointer rounded-full border-2 border-neutral-900 bg-transparent ${
+        isH ? 'w-[84px] h-[10px]' : 'w-[10px] h-[84px]'
+      }`}
+    >
+      {/* Relleno (desde el inicio hasta la perilla) */}
+      <div
+        className="absolute bg-neutral-900 rounded-full"
+        style={isH
+          ? { left: 2, top: 2, bottom: 2, width: `calc(${ratio * 100}% - 4px)` }
+          : { left: 2, right: 2, bottom: 2, height: `calc(${ratio * 100}% - 4px)` }}
+      />
+      {/* Perilla */}
+      <div
+        className="absolute w-[10px] h-[10px] rounded-full bg-neutral-950 border border-neutral-950"
+        style={isH
+          ? { left: `calc(${ratio * 100}% - 5px)`, top: -2 }
+          : { bottom: `calc(${ratio * 100}% - 5px)`, left: -2 }}
+      />
+    </div>
+  );
+};
+
 export default function App() {
   // =========================================================================
   // 2. ARQUITECTURA DE ESTADOS TOPOGRÁFICOS (React State)
@@ -191,13 +361,19 @@ export default function App() {
   });
 
   const [stationAtm, setStationAtm] = useState<StationAtm>({
-    CD: 'BASE',
-    operador: localStorage.getItem('user_name') || 'TOPOGRAFO',
-    clima: 'DESPEJADO',
+    CD: 'TN',
+    operador: (() => {
+      try {
+        return localStorage.getItem('user_name') || 'TOPOGRAFO';
+      } catch {
+        return 'TOPOGRAFO';
+      }
+    })(),
+    clima: 'Fino',
     viento: 'Calma',
-    temp: '20°C',
-    pres: '760mmHg',
-    ppm: '11'
+    temp: '15',     // °C
+    pres: '1013',   // hPa
+    ppm: '-6'
   });
 
   const [backsight, setBacksight] = useState<Backsight>({
@@ -314,12 +490,9 @@ export default function App() {
   const [showKeyboardHelp, setShowKeyboardHelp] = useState<boolean>(false);
 
   // Estados para pantalla MED y Compensador ComPen (AZ-0)
-  const [isMeasuringFast, setIsMeasuringFast] = useState<boolean>(false);
   const [showTaraSoftkey, setShowTaraSoftkey] = useState<boolean>(false);
   const [compenX, setCompenX] = useState<number>(-167); // Representa -2' 47"
   const [compenY, setCompenY] = useState<number>(245);  // > 210" -> * * * *
-  const [isDraggingBubble, setIsDraggingBubble] = useState<boolean>(false);
-  const compenSvgRef = useRef<SVGSVGElement | null>(null);
 
   // Estados para Estacionamiento (Occ.Orien), Carga de Puntos (CARG), ACLE.R y TRISEC
   const [occPage, setOccPage] = useState<1 | 2>(1);
@@ -336,11 +509,85 @@ export default function App() {
 
   // Estados para Menú EDM, DESPLZ, Ajustes Rápidos (Estrella ★) y USB Tipo T
   const [prevScreenBeforeEdm, setPrevScreenBeforeEdm] = useState<ScreenState>('MED');
-  const [edmReflector, setEdmReflector] = useState<'N-Prism' | 'Prisma' | 'Diana' | 'N-Prisma'>('N-Prism');
+  const [, setEdmReflector] = useState<'N-Prism' | 'Prisma' | 'Diana' | 'N-Prisma'>('N-Prism');
   const [desplzMenuSelection, setDesplzMenuSelection] = useState<number>(1);
   const [isStarMenuOpen, setIsStarMenuOpen] = useState<boolean>(false);
   const [usbTTypeSelection, setUsbTTypeSelection] = useState<number>(1);
   const [usbTypeMode, setUsbTypeMode] = useState<'T' | 'S'>('S');
+
+  // =========================================================================
+  // ESTADOS AÑADIDOS (Corrección de usuario 12-10-2026)
+  // =========================================================================
+  // Modo de entrada del teclado (SHIFT): NUM -> ALF -> SIM, con multi-pulsación en ALF/SIM
+  const [inputMode, setInputMode] = useState<InputMode>('NUM');
+  const lastTapRef = useRef<{ key: string; time: number; idx: number }>({ key: '', time: 0, idx: 0 });
+
+  // Pantalla MED: vista normal (HD / AZ / HA-D) o vista GHV (GD / HD / VD)
+  const [medView, setMedView] = useState<'NORMAL' | 'GHV'>('NORMAL');
+  const [lastMeas, setLastMeas] = useState<{ SD: number; HD: number; VD: number; HA: number } | null>(null);
+  // Animación de medición de distancia (línea + láser, F4 = PARA)
+  const [measureAnim, setMeasureAnim] = useState<{ active: boolean; progress: number }>({ active: false, progress: 0 });
+  const measureTimerRef = useRef<{ interval: number | null; done: (() => void) | null }>({ interval: null, done: null });
+
+  // Configuración EDM (2 páginas)
+  const [edmCfg, setEdmCfg] = useState<{ modo: string; cp: number; mantIlum: string; luzGuia: string }>({
+    modo: 'Rápido S',
+    cp: 0,
+    mantIlum: 'Láser',
+    luzGuia: '1'
+  });
+  const [edmField, setEdmField] = useState<number>(0);
+  const [edmBuffer, setEdmBuffer] = useState<string>('');
+
+  // Estacionamiento: lista de códigos Cd (LIST / BUSC / AGR)
+  const [codeList, setCodeList] = useState<string[]>(DEFAULT_CODES);
+  const [codeIdx, setCodeIdx] = useState<number>(0);
+  const [codeSearchBuffer, setCodeSearchBuffer] = useState<string>('');
+
+  // Lista de puntos genérica (CARG en Estacionamiento, E.RXYZ, Replanteo y Ver)
+  const [pickCtx, setPickCtx] = useState<PickContext>('OCC');
+  const [searchField, setSearchField] = useState<number>(0); // 0 PTO, 1 Criteria, 2 Direct.
+  const [searchCriteria, setSearchCriteria] = useState<'Completo' | 'Parcial'>('Completo');
+  const [searchDirection, setSearchDirection] = useState<'↓' | '↑'>('↓');
+  const [verDetailIdx, setVerDetailIdx] = useState<number>(0);
+
+  // ComPen: contexto de origen y pantalla de regreso
+  const [compenCtx, setCompenCtx] = useState<CompenContext>('MED');
+  const [compenReturn, setCompenReturn] = useState<ScreenState>('MED');
+
+  // Trisección: ajustes y medición
+  const [trisecAj, setTrisecAj] = useState<{ obsCara: 'No' | 'Si'; z: 'On' | 'Off'; field: number }>({
+    obsCara: 'No',
+    z: 'On',
+    field: 0
+  });
+
+  // Replanteo: punto cargado y datos editables DistH / Ang H
+  const [replPoint, setReplPoint] = useState<TopoPoint | null>(null);
+  const [replDisp, setReplDisp] = useState<{ distH: number; angH: number }>({ distH: 0, angH: 113.766111 });
+
+  // Observación: tras [MED] se habilita [REG]
+  const [obsMeasured, setObsMeasured] = useState<boolean>(false);
+  const [obsReturn, setObsReturn] = useState<ScreenState>('COORD_MENU');
+  const [desplzReturn, setDesplzReturn] = useState<ScreenState>('MED');
+
+  // TOPO Dist*Coord: patrón de observación y modelos
+  const [topoPttrn, setTopoPttrn] = useState<{ sets: number; obs: number; obsP12: 'NO' | 'SI'; preenter: 'NO' | 'SI'; field: number }>({
+    sets: 1,
+    obs: 1,
+    obsP12: 'NO',
+    preenter: 'NO',
+    field: 0
+  });
+  const [topoModels, setTopoModels] = useState<string[]>(['CLEV', '', 'CLEV', '']);
+  const [topoModelIdx, setTopoModelIdx] = useState<number>(0);
+
+  // Botón estrella: ajustes rápidos o menú de accesos (ENT)
+  const [starMode, setStarMode] = useState<'SETTINGS' | 'MENU'>('SETTINGS');
+  const [starMenuIdx, setStarMenuIdx] = useState<number>(0);
+
+  // Capa de correcciones: se asigna en cada render (sección 8)
+  const overrideRef = useRef<OverrideHandlers | null>(null);
 
   const GRAPHIC_MENU_ITEMS = useMemo(() => [
     { id: 'coord', name: 'Coord' },
@@ -348,30 +595,41 @@ export default function App() {
     { id: 'desplz', name: 'DesPlz.' },
     { id: 'topo', name: 'ToPografia' },
     { id: 'mdr', name: 'MDR' },
+    { id: 'mer', name: 'MER' },
     { id: 'calc_area', name: 'Calc.Area' },
     { id: 'repl_linea', name: 'RePl Linea' },
     { id: 'repl_arco', name: 'RePl Arco' },
     { id: 'proyecto_p', name: 'Proyecto-P' },
     { id: 'pt_a_linea', name: 'Pt.a.Linea' },
+    { id: 'intersec', name: 'Intersec.' },
     { id: 'poligonal', name: 'Poligonal' },
     { id: 'vial', name: 'Vial' },
     { id: 'per_trans', name: 'Per.Trans.' }
   ], []);
 
-  const occLoadPoints = useMemo<TopoPoint[]>(() => {
-    const defaultPts: TopoPoint[] = [
-      { PTO: 'PTO 1', N: 1000.0, E: 1000.0, Z: 100.0, CD: 'BASE' },
-      { PTO: 'PTO 2', N: 1025.5, E: 1018.2, Z: 101.4, CD: 'REF' }
-    ];
-    const userPts = [...points, ...knownPoints];
-    const combined = [...defaultPts];
-    for (const p of userPts) {
-      if (!combined.some(c => c.PTO.toLowerCase() === p.PTO.toLowerCase())) {
-        combined.push(p);
+  // Memoria de registros tal como la lista el equipo: Crd (coordenadas), Occ (estación), Ref. (punto atrás), PTO (observados)
+  const pointRecords = useMemo<PointRecord[]>(() => {
+    const recs: PointRecord[] = [];
+    const push = (tag: PointRecord['tag'], p: TopoPoint) => {
+      if (!recs.some(r => r.tag === tag && r.PTO.toLowerCase() === p.PTO.toLowerCase())) {
+        recs.push({ tag, PTO: p.PTO, N: p.N, E: p.E, Z: p.Z, CD: p.CD || '' });
       }
-    }
-    return combined;
+    };
+    DEFAULT_CRD_POINTS.forEach(p => push('Crd', p));
+    knownPoints.forEach(p => push('Crd', p));
+    points.forEach(p => {
+      if (p.type === 'station') push('Occ', p);
+      else if (p.type === 'backsight') push('Ref.', p);
+      else push('PTO', p);
+    });
+    return recs;
   }, [points, knownPoints]);
+
+  // Compatibilidad con el flujo de carga existente
+  const occLoadPoints = useMemo<TopoPoint[]>(
+    () => pointRecords.map(r => ({ PTO: r.PTO, N: r.N, E: r.E, Z: r.Z, CD: r.CD })),
+    [pointRecords]
+  );
 
   // Posición de la burbuja calculada para la diana ComPen (centro en 50, 50, radio máx 36px)
   const bubblePos = useMemo(() => {
@@ -391,44 +649,8 @@ export default function App() {
     };
   }, [compenX, compenY]);
 
-  const updateBubbleFromPointer = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    const svg = compenSvgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const scale = 100 / rect.width;
-    let dx = (e.clientX - rect.left) * scale - 50;
-    let dy = (e.clientY - rect.top) * scale - 50;
-
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxR = 36;
-    if (dist > maxR) {
-      dx = (dx / dist) * maxR;
-      dy = (dy / dist) * maxR;
-    }
-
-    const newSecX = Math.round(dx * 8);
-    const newSecY = Math.round(-dy * 8);
-
-    setCompenX(newSecX);
-    setCompenY(newSecY);
-  }, []);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    setIsDraggingBubble(true);
-    updateBubbleFromPointer(e);
-  }, [updateBubbleFromPointer]);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    if (isDraggingBubble) {
-      updateBubbleFromPointer(e);
-    }
-  }, [isDraggingBubble, updateBubbleFromPointer]);
-
-  const handlePointerUp = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    (e.target as Element).releasePointerCapture?.(e.pointerId);
-    setIsDraggingBubble(false);
-  }, []);
+  // ComPen: la burbuja ya no se arrastra. Se nivela con los sliders (X = tornillos A+B, Y = tornillo C).
+  const COMPEN_LIMIT = 300; // segundos de arco máximos representables en los sliders
 
   // Síntesis de Audio Web Audio API (Zumbador y Láser EDM)
   const playBeep = useCallback((freq = 1400, duration = 0.08, type: OscillatorType = 'sine') => {
@@ -456,6 +678,66 @@ export default function App() {
     setTimeout(() => playBeep(2800, 0.14), 80);
   }, [soundEnabled, playBeep]);
 
+  // =========================================================================
+  // MEDICIÓN DE DISTANCIA SIMULADA: pantalla "Dist" con la línea avanzando hacia
+  // la derecha, pitidos repetidos y cierre automático (F4 = PARA la detiene).
+  // =========================================================================
+  const stopMeasurement = useCallback((runDone: boolean) => {
+    const t = measureTimerRef.current;
+    if (t.interval !== null) {
+      window.clearInterval(t.interval);
+      t.interval = null;
+    }
+    const done = t.done;
+    t.done = null;
+    setMeasureAnim({ active: false, progress: 0 });
+    if (runDone && done) done();
+  }, []);
+
+  const startMeasurement = useCallback((onDone: () => void, durationOverride?: number) => {
+    if (measureTimerRef.current.interval !== null) return;
+    const duration = durationOverride ?? EDM_DURATION[edmCfg.modo] ?? 1500;
+    const start = Date.now();
+    let lastBeep = 0;
+    measureTimerRef.current.done = onDone;
+    setMeasureAnim({ active: true, progress: 0 });
+    playBeep(2100, 0.05);
+    measureTimerRef.current.interval = window.setInterval(() => {
+      const elapsed = Date.now() - start;
+      if (elapsed - lastBeep >= 320) {
+        lastBeep = elapsed;
+        playBeep(2400, 0.04);
+      }
+      if (elapsed >= duration) {
+        playLaserBeep();
+        stopMeasurement(true);
+      } else {
+        setMeasureAnim({ active: true, progress: elapsed / duration });
+      }
+    }, 50);
+  }, [edmCfg.modo, playBeep, playLaserBeep, stopMeasurement]);
+
+  // Limpieza del temporizador de medición al desmontar
+  useEffect(() => {
+    const t = measureTimerRef.current;
+    return () => {
+      if (t.interval !== null) window.clearInterval(t.interval);
+    };
+  }, []);
+
+  // Lectura simulada del distanciómetro con los reguladores de terreno
+  const leerDistanciometro = useCallback(() => {
+    const radV = envV * (Math.PI / 180);
+    const meas = {
+      SD: envSD,
+      HD: envSD * Math.sin(radV),
+      VD: envSD * Math.cos(radV),
+      HA: envHD
+    };
+    setLastMeas(meas);
+    return meas;
+  }, [envV, envSD, envHD]);
+
   // Ciclo interactivo de reflectores EDM Topcon: N-Prism -> Prisma -> Diana -> N-Prisma
   const cycleEdmReflector = useCallback(() => {
     playBeep(1200, 0.05);
@@ -477,6 +759,8 @@ export default function App() {
   const handleStarPress = useCallback(() => {
     playBeep(1600, 0.05);
     if (screenState === 'OBS' || screenState === 'MED') {
+      setStarMode('SETTINGS');
+      setStarMenuIdx(0);
       setIsStarMenuOpen(prev => !prev);
     }
   }, [screenState, playBeep]);
@@ -492,6 +776,7 @@ export default function App() {
   // Sincronizar inputBuffer cuando cambia el campo o la pantalla
   useEffect(() => {
     if (screenState === 'OCC_ORIEN') {
+      // 14 campos: Y0 X0 Z0 PTO HI | Cd Operador | Fech Tiem Clima Viento | Temp Pres PPm
       const vals = [
         station.N,
         station.E,
@@ -500,6 +785,8 @@ export default function App() {
         station.HI,
         stationAtm.CD,
         stationAtm.operador,
+        '',
+        '',
         stationAtm.clima,
         stationAtm.viento,
         stationAtm.temp,
@@ -513,6 +800,7 @@ export default function App() {
     } else if (screenState === 'OBS') {
       if (activeField === 0) setInputBuffer(target.PTO);
       if (activeField === 1) setInputBuffer(target.CD);
+      if (activeField === 2) setInputBuffer(String(target.HR));
     } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       setInputBuffer(jobName.replace(/^\*/, ''));
     } else if (screenState === 'KNOWN_INPUT') {
@@ -532,14 +820,14 @@ export default function App() {
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
     if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
-    if (screenState === 'OCC_LOAD_SEARCH') return true;
-    if (screenState === 'OBS') return true; // Tanto PTO como Cd admiten alfanumérico
+    if (screenState === 'OCC_LOAD_SEARCH') return searchField === 0; // Solo el campo PTO admite texto
+    if (screenState === 'OBS') return activeField === 0 || activeField === 1; // PTO y Cd alfanuméricos; HD numérico
+    if (screenState === 'CODE_SEARCH') return true;
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
-    if (screenState === 'ERXYZ' && activeField === 3) return true; // PTO de E.RXYZ
-    if (screenState === 'OCC_ORIEN' && (activeField === 3 || (activeField >= 5 && activeField <= 8))) return true; // PTO, Cd, Operador, Clima, Viento
+    if (screenState === 'OCC_ORIEN' && (activeField === 3 || activeField === 5 || activeField === 6)) return true; // PTO, Cd, Operador
     return false;
-  }, [screenState, activeField]);
+  }, [screenState, activeField, searchField]);
 
   // Guardar campo editado
   const commitCurrentField = useCallback(() => {
@@ -552,11 +840,10 @@ export default function App() {
       else if (activeField === 4 && !isNaN(val)) setStation(s => ({ ...s, HI: val }));
       else if (activeField === 5) setStationAtm(a => ({ ...a, CD: inputBuffer.trim() || 'BASE' }));
       else if (activeField === 6) setStationAtm(a => ({ ...a, operador: inputBuffer.trim() || 'OPERADOR' }));
-      else if (activeField === 7) setStationAtm(a => ({ ...a, clima: inputBuffer.trim() || 'DESPEJADO' }));
-      else if (activeField === 8) setStationAtm(a => ({ ...a, viento: inputBuffer.trim() || 'Calma' }));
-      else if (activeField === 9) setStationAtm(a => ({ ...a, temp: inputBuffer.trim() || '20°C' }));
-      else if (activeField === 10) setStationAtm(a => ({ ...a, pres: inputBuffer.trim() || '760mmHg' }));
-      else if (activeField === 11) setStationAtm(a => ({ ...a, ppm: inputBuffer.trim() || '11' }));
+      // 7 Fech y 8 Tiem son automáticos; 9 Clima y 10 Viento se eligen con ◄ ►
+      else if (activeField === 11 && !isNaN(val)) setStationAtm(a => ({ ...a, temp: String(Math.max(-35, Math.min(60, val))) }));
+      else if (activeField === 12 && !isNaN(val)) setStationAtm(a => ({ ...a, pres: String(Math.max(500, Math.min(1400, val))) }));
+      else if (activeField === 13 && !isNaN(val)) setStationAtm(a => ({ ...a, ppm: String(Math.round(Math.max(-499, Math.min(499, val)))) }));
     } else if (screenState === 'ERXYZ') {
       if (activeField === 0 && !isNaN(val)) setBacksight(b => ({ ...b, N: val }));
       else if (activeField === 1 && !isNaN(val)) setBacksight(b => ({ ...b, E: val }));
@@ -565,6 +852,7 @@ export default function App() {
     } else if (screenState === 'OBS') {
       if (activeField === 0) setTarget(t => ({ ...t, PTO: inputBuffer.trim() || '1' }));
       if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer.trim() || 'PTO' }));
+      if (activeField === 2 && !isNaN(val)) setTarget(t => ({ ...t, HR: val }));
     } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
       if (inputBuffer.trim()) {
         const clean = inputBuffer.trim();
@@ -814,108 +1102,78 @@ export default function App() {
     }, 1800);
   }, [backsight, station, stationAtm.CD, checkBsData.dDH, playBeep, playLaserBeep]);
 
-  // Disparo Láser y Levantamiento [AUTO]
-  const ejecutarLevantamientoAuto = useCallback(() => {
-    if (isMeasuring) return;
-    setIsMeasuring(true);
-    playBeep(2100, 0.05);
-
-    // Asegurar buffer actual si el usuario estaba editando PTO o Cd
+  // Registro del punto observado (usado por [REG] tras [MED] y por [AUTO])
+  const registrarPuntoObservado = useCallback(() => {
+    // Asegurar buffer actual si el usuario estaba editando PTO, Cd o HD (altura de prisma)
     const currentPTO = activeField === 0 ? (inputBuffer.trim() || target.PTO) : target.PTO;
     const currentCD = activeField === 1 ? (inputBuffer.trim() || target.CD) : target.CD;
+    const bufHR = parseFloat(inputBuffer);
+    const currentHR = activeField === 2 && !isNaN(bufHR) ? bufHR : target.HR;
 
-    setTimeout(() => {
-      // 1. Extraer valores del Panel de Reguladores Externos
-      const HD_grados = envHD;
-      const V_cenital_grados = envV;
-      const SD_metros = envSD;
+    // 1. Valores del Panel de Reguladores Externos y conversión a radianes
+    const V_rad = envV * (Math.PI / 180);
 
-      // 2. Conversión a Radianes (Math.PI / 180)
-      const V_rad = V_cenital_grados * (Math.PI / 180);
+    // 2. Azimut actual
+    let Azimut = azimutInicial + envHD;
+    Azimut = ((Azimut % 360) + 360) % 360;
+    const Azimut_rad = Azimut * (Math.PI / 180);
 
-      // 3. Calcular Azimut Actual
-      let Azimut = azimutInicial + HD_grados;
-      Azimut = ((Azimut % 360) + 360) % 360;
-      const Azimut_rad = Azimut * (Math.PI / 180);
+    // 3. Distancia Horizontal y Desnivel
+    const DH = envSD * Math.sin(V_rad);
+    const DV = envSD * Math.cos(V_rad);
 
-      // 4. Distancia Horizontal y Desnivel
-      const DH = SD_metros * Math.sin(V_rad);
-      const DV = SD_metros * Math.cos(V_rad);
+    // 4. Coordenadas Tridimensionales
+    const Norte_Nuevo = station.N + (DH * Math.cos(Azimut_rad));
+    const Este_Nuevo = station.E + (DH * Math.sin(Azimut_rad));
+    const Cota_Nueva = station.Z + station.HI + DV - currentHR;
 
-      // 5. Coordenadas Tridimensionales
-      const Norte_Nuevo = station.N + (DH * Math.cos(Azimut_rad));
-      const Este_Nuevo = station.E + (DH * Math.sin(Azimut_rad));
-      const Cota_Nueva = station.Z + station.HI + DV - target.HR;
+    // 5. Guardado en la memoria de la estación con PTO alfanumérico
+    const nuevoPunto: TopoPoint = {
+      PTO: currentPTO,
+      N: parseFloat(Norte_Nuevo.toFixed(3)),
+      E: parseFloat(Este_Nuevo.toFixed(3)),
+      Z: parseFloat(Cota_Nueva.toFixed(3)),
+      CD: currentCD.trim() || 'PTO',
+      type: 'radial',
+      date: new Date().toLocaleTimeString()
+    };
+    setPoints(prev => [...prev, nuevoPunto]);
+    playLaserBeep();
 
-      // 6. Guardado en la memoria de la estación con PTO alfanumérico
-      const nuevoPunto: TopoPoint = {
-        PTO: currentPTO,
-        N: parseFloat(Norte_Nuevo.toFixed(3)),
-        E: parseFloat(Este_Nuevo.toFixed(3)),
-        Z: parseFloat(Cota_Nueva.toFixed(3)),
-        CD: currentCD.trim() || 'PTO',
-        type: 'radial',
-        date: new Date().toLocaleTimeString()
-      };
+    // 6. Auto-incremento inteligente del PTO si termina en número
+    const proxPTO = incrementPointId(currentPTO);
+    setTarget(prev => ({ ...prev, PTO: proxPTO, CD: currentCD, HR: currentHR }));
+    if (activeField === 0) setInputBuffer(proxPTO);
 
-      setPoints(prev => [...prev, nuevoPunto]);
+    setObsMeasured(false);
+    setObsShotFlash(true);
+    setTimeout(() => setObsShotFlash(false), 350);
+  }, [activeField, inputBuffer, envHD, envV, envSD, azimutInicial, station, target, playLaserBeep]);
 
-      // Bip acústico láser
-      playLaserBeep();
-
-      // 7. Auto-incremento inteligente del PTO si termina en número
-      const proxPTO = incrementPointId(currentPTO);
-      setTarget(prev => ({
-        ...prev,
-        PTO: proxPTO,
-        CD: currentCD
-      }));
-
-      if (activeField === 0) {
-        setInputBuffer(proxPTO);
-      }
-
-      // Flash visual breve para confirmar disparo sin salir de la pantalla de Observación
-      setObsShotFlash(true);
-      setTimeout(() => setObsShotFlash(false), 350);
-
-      setIsMeasuring(false);
-    }, 350);
-  }, [
-    isMeasuring,
-    activeField,
-    inputBuffer,
-    envHD,
-    envV,
-    envSD,
-    azimutInicial,
-    station,
-    target,
-    playBeep,
-    playLaserBeep
-  ]);
+  // [AUTO]: mide la distancia (animación Dist) y registra el punto automáticamente
+  const ejecutarLevantamientoAuto = useCallback(() => {
+    startMeasurement(() => {
+      leerDistanciometro();
+      registrarPuntoObservado();
+    });
+  }, [startMeasurement, leerDistanciometro, registrarPuntoObservado]);
 
   // =========================================================================
   // 7. BOTONERA FÍSICA Y MÁQUINA DE ESTADOS TOPCON
   // =========================================================================
 
   // Tecla física [SFT]: Cicla entre Prisma, Tarjeta y Lectura Directa
+  // Tecla física [SHIFT]: en campos de texto cambia el modo de entrada NUM -> ALF -> SIM
+  // (el reflector EDM ahora se cambia en la pantalla EDM, como en el equipo real)
   const handleShiftPress = useCallback(() => {
     playBeep(1200, 0.05);
-    setEdmMode(prev => {
-      const next = prev === 'prism' ? 'sheet' : prev === 'sheet' ? 'non_prism' : 'prism';
-      setEdmReflector(next === 'prism' ? 'Prisma' : next === 'sheet' ? 'Diana' : 'N-Prisma');
-      return next;
-    });
-    // Si está en un campo de texto, también despliega u oculta la ayuda alfanumérica
-    if (isCurrentFieldAlpha) {
-      setIsAlphaKeyboardOpen(k => !k);
-    }
-  }, [playBeep, isCurrentFieldAlpha]);
+    overrideRef.current?.shift();
+  }, [playBeep]);
 
   // Tecla física [FUNC]: Alterna páginas de MED (Pág 1/2/3), Estacionamiento (Pág 1 / Pág 2) o Pantalla Principal (Pág 1 / Pág 2)
   const handleFuncPress = useCallback(() => {
     playBeep(1200, 0.05);
+    if (overrideRef.current?.func()) return;
     if (screenState === 'MED') {
       setMedPage(p => (p === 1 ? 2 : p === 2 ? 3 : 1));
     } else if (screenState === 'OCC_ORIEN') {
@@ -930,6 +1188,7 @@ export default function App() {
   // Teclado físico numérico y de símbolos
   const handleKeypadPress = useCallback((key: string) => {
     playBeep(1150, 0.04);
+    if (overrideRef.current?.key(key)) return;
 
     // Acceso numérico rápido desde ROOT
     if (screenState === 'ROOT') {
@@ -1103,6 +1362,7 @@ export default function App() {
   // Botón físico central AZUL: ENTER
   const handleEnterPress = useCallback(() => {
     playBeep(1450, 0.07);
+    if (overrideRef.current?.enter()) return;
     if (isStarMenuOpen) {
       setIsStarMenuOpen(false);
       return;
@@ -1668,6 +1928,7 @@ export default function App() {
   // Botón físico ESC (Al pulsar repetidamente desde cualquier estado, llega a 'ROOT')
   const handleEscPress = useCallback(() => {
     playBeep(900, 0.07);
+    if (overrideRef.current?.esc()) return;
     if (isStarMenuOpen) {
       setIsStarMenuOpen(false);
       return;
@@ -1771,6 +2032,7 @@ export default function App() {
   // Flechas direccionales en cruz
   const handleArrow = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
     playBeep(1050, 0.04);
+    if (overrideRef.current?.arrow(dir)) return;
     commitCurrentField();
 
     if (screenState === 'GRAPHIC_MENU') {
@@ -1947,6 +2209,7 @@ export default function App() {
   // Botones de función F1-F4 según la máquina de estados
   const handleFKey = useCallback((fNum: 1 | 2 | 3 | 4) => {
     playBeep(1300, 0.06);
+    if (overrideRef.current?.fkey(fNum)) return;
     commitCurrentField();
 
     // Estado TILT (Compensador de arranque): F1=[OK]
@@ -1999,7 +2262,6 @@ export default function App() {
         if (fNum === 4) {
           playLaserBeep();
           setShowTaraSoftkey(false);
-          setIsMeasuringFast(false);
           setLcdMessage('TARA APLICADA');
         }
         return;
@@ -2042,11 +2304,9 @@ export default function App() {
         if (fNum === 1) {
           // [MED]: Bip, parpadeo srapido momentáneo, y softkeys temporales [ , , , TARA]
           playBeep(1800, 0.12);
-          setIsMeasuringFast(true);
           setShowTaraSoftkey(true);
           setTimeout(() => {
-            setIsMeasuringFast(false);
-            setShowTaraSoftkey(false);
+              setShowTaraSoftkey(false);
           }, 1800);
         } else if (fNum === 2) {
           // [G V]
@@ -2533,6 +2793,811 @@ export default function App() {
     playLaserBeep
   ]);
 
+  // =========================================================================
+  // 8. CORRECCIONES DE USUARIO (12-10-2026): CAPA DE CONTROL DE PANTALLAS
+  // -------------------------------------------------------------------------
+  // Esta capa se ejecuta ANTES que los manejadores originales. Si una pantalla
+  // corregida maneja la tecla, devuelve true y el manejador original no actúa.
+  // Se reasigna en cada render (overrideRef) para trabajar siempre con el
+  // estado actual, sin depender de las listas de dependencias de useCallback.
+  // =========================================================================
+  const STAR_MENU_ITEMS: { name: string; go: ScreenState }[] = [
+    { name: 'Menu', go: 'GRAPHIC_MENU' },
+    { name: 'Datos', go: 'DATO_MENU' },
+    { name: 'ToPografia', go: 'TOPO_MENU' },
+    { name: 'Coords', go: 'COORD_MENU' },
+    { name: 'RePl', go: 'REPLANTEO_MENU' }
+  ];
+
+  // Escritura con el modo de entrada actual (NUM / ALF / SIM) y multi-pulsación
+  const applyKeyToBuffer = (key: string, buf: string): string => {
+    if (key === 'BS') return buf.slice(0, -1);
+    if (key.startsWith('RAW:')) return buf + key.slice(4);
+    if (inputMode === 'NUM') {
+      if (key === '.' && buf.includes('.')) return buf;
+      return buf + key;
+    }
+    const chars = KEY_CHARS[key]?.[inputMode];
+    if (!chars) return buf + key;
+    const now = Date.now();
+    const lt = lastTapRef.current;
+    if (lt.key === key && now - lt.time < 900 && chars.length > 1 && buf.length > 0) {
+      const idx = (lt.idx + 1) % chars.length;
+      lastTapRef.current = { key, time: now, idx };
+      return buf.slice(0, -1) + chars[idx];
+    }
+    lastTapRef.current = { key, time: now, idx: 0 };
+    return buf + chars[0];
+  };
+
+  const applyNumericKey = (key: string, buf: string): string => {
+    if (key === 'BS') return buf.slice(0, -1);
+    if (key === '-') return buf.startsWith('-') ? buf.slice(1) : `-${buf}`;
+    if (key === '.') return buf.includes('.') ? buf : buf + '.';
+    if (/^\d$/.test(key)) return buf + key;
+    return buf;
+  };
+
+  const goCompen = (ctx: CompenContext, ret: ScreenState) => {
+    setCompenCtx(ctx);
+    setCompenReturn(ret);
+    setScreenState('COMPEN');
+  };
+
+  const goObservacion = (ret: ScreenState) => {
+    setObsReturn(ret);
+    setObsMeasured(false);
+    setActiveField(2); // El cursor arranca en HD (altura de prisma), como en el equipo
+    setScreenState('OBS');
+  };
+
+  const openPicker = (ctx: PickContext) => {
+    setPickCtx(ctx);
+    setSelectedOccLoadIdx(0);
+    setScreenState('OCC_LOAD_LIST');
+  };
+
+  const pickerReturnScreen = (ctx: PickContext): ScreenState =>
+    ctx === 'OCC' ? 'OCC_ORIEN' : ctx === 'BS' ? 'ERXYZ' : ctx === 'REPL' ? 'REPL_DATA' : 'TOPO_MENU';
+
+  const openEdm = (from: ScreenState) => {
+    setPrevScreenBeforeEdm(from);
+    setEdmField(0);
+    setEdmBuffer('');
+    setScreenState('EDM_MENU');
+  };
+
+  // Azimut y distancia horizontal desde la estación hacia un punto
+  const calcAzDist = (p: { N: number; E: number }) => {
+    const dN = p.N - station.N;
+    const dE = p.E - station.E;
+    let az = Math.atan2(dE, dN) * (180 / Math.PI);
+    if (az < 0) az += 360;
+    return { az, dist: Math.sqrt(dN * dN + dE * dE) };
+  };
+
+  const loadRecord = (rec: PointRecord, idx: number) => {
+    playLaserBeep();
+    if (pickCtx === 'OCC') {
+      setStation(s => ({ ...s, N: rec.N, E: rec.E, Z: rec.Z, PTO: rec.PTO }));
+      if (rec.CD) setStationAtm(a => ({ ...a, CD: rec.CD }));
+      setLcdMessage(`${rec.tag} ${rec.PTO}\nCARGADO`);
+      setTimeout(() => { setScreenState('OCC_ORIEN'); setActiveField(0); }, 900);
+    } else if (pickCtx === 'BS') {
+      setBacksight({ N: rec.N, E: rec.E, Z: rec.Z, PTO: rec.PTO });
+      setLcdMessage(`${rec.tag} ${rec.PTO}\nCARGADO EN Estc. Ref.`);
+      setTimeout(() => { setScreenState('ERXYZ'); setActiveField(0); }, 900);
+    } else if (pickCtx === 'REPL') {
+      const { az, dist } = calcAzDist(rec);
+      setReplPoint({ PTO: rec.PTO, N: rec.N, E: rec.E, Z: rec.Z, CD: rec.CD });
+      setReplDisp({ distH: parseFloat(dist.toFixed(3)), angH: az });
+      setLcdMessage(`${rec.tag} ${rec.PTO}\nCARGADO EN REPLANTEO`);
+      setTimeout(() => { setScreenState('REPL_DATA'); setReplDisplayMode('COORD'); setActiveField(0); }, 900);
+    } else {
+      setVerDetailIdx(idx);
+      setScreenState('VER_DETAIL');
+    }
+  };
+
+  const buscarRegistro = () => {
+    const q = occSearchBuffer.trim().toLowerCase();
+    if (!q) {
+      setLcdMessage('no hay datos');
+      return;
+    }
+    const n = pointRecords.length;
+    const matches = (r: PointRecord) => {
+      const name = r.PTO.toLowerCase();
+      return searchCriteria === 'Completo' ? name === q || name.replace(/^pto\s*/, '') === q : name.includes(q);
+    };
+    for (let step = 0; step < n; step++) {
+      const i = searchDirection === '↓'
+        ? (selectedOccLoadIdx + step) % n
+        : (selectedOccLoadIdx - step + n) % n;
+      if (matches(pointRecords[i])) {
+        setSelectedOccLoadIdx(i);
+        loadRecord(pointRecords[i], i);
+        return;
+      }
+    }
+    setLcdMessage('no hay datos');
+  };
+
+  // Campos de la página de Estacionamiento a la que pertenece cada índice (4 pantallas, 14 campos)
+  const OCC_PAGES = [[0, 1, 2, 3, 4], [5, 6], [7, 8, 9, 10], [11, 12, 13]];
+  const occPageOf = (f: number) => OCC_PAGES.findIndex(pg => pg.includes(f));
+
+  const commitEdmField = () => {
+    if (edmBuffer === '' || edmBuffer === '-') {
+      setEdmBuffer('');
+      return;
+    }
+    const v = parseFloat(edmBuffer);
+    if (!isNaN(v)) {
+      if (edmField === 2) setEdmCfg(c => ({ ...c, cp: Math.round(Math.max(-99, Math.min(99, v))) }));
+      if (edmField === 5) setStationAtm(a => ({ ...a, temp: String(Math.max(-35, Math.min(60, v))) }));
+      if (edmField === 6) setStationAtm(a => ({ ...a, pres: String(Math.round(Math.max(500, Math.min(1400, v)))) }));
+      if (edmField === 7) setStationAtm(a => ({ ...a, ppm: String(Math.round(Math.max(-499, Math.min(499, v)))) }));
+    }
+    setEdmBuffer('');
+  };
+
+  const cycleOption = (list: string[], cur: string, dir: 1 | -1) => {
+    const i = Math.max(0, list.indexOf(cur));
+    return list[(i + dir + list.length) % list.length];
+  };
+
+  const setReflectorByName = (name: string) => {
+    if (name === 'Prisma') { setEdmMode('prism'); setEdmReflector('Prisma'); }
+    else if (name === 'Diana') { setEdmMode('sheet'); setEdmReflector('Diana'); }
+    else { setEdmMode('non_prism'); setEdmReflector('N-Prism'); }
+  };
+  const currentReflectorName = edmMode === 'prism' ? 'Prisma' : edmMode === 'sheet' ? 'Diana' : 'N-Prism';
+
+  const commitReplDispField = () => {
+    if (inputBuffer.trim() === '') return;
+    const v = parseFloat(inputBuffer);
+    if (isNaN(v)) return;
+    if (activeField === 0) setReplDisp(d => ({ ...d, distH: Math.abs(v) }));
+    else setReplDisp(d => ({ ...d, angH: parseDmsInput(v) }));
+    setInputBuffer('');
+  };
+
+  const OBS_FIELD_ORDER = [2, 0, 1]; // HD -> PTO -> Cd
+
+  const filteredCodes = codeList.filter(c => c.toLowerCase().startsWith(codeSearchBuffer.trim().toLowerCase()));
+
+  // Etiquetas F1-F4 de las pantallas corregidas (null = usar las originales)
+  const overrideFKeyLabels = (): [string, string, string, string] | null => {
+    if (measureAnim.active) return ['', '', '', 'PARA'];
+    if (isStarMenuOpen) return starMode === 'SETTINGS' ? ['', '', '', 'ENT'] : ['', '', '', ''];
+    switch (screenState) {
+      case 'MED':
+        if (medPage === 1) return ['MED', 'GHV', 'AZ-0', 'COORD'];
+        if (medPage === 2) return ['MENU', 'COMP', 'ANG.H', 'EDM'];
+        return ['MDR', 'DESPLZ', 'TOPO', 'REPL'];
+      case 'GRAPHIC_MENU':
+      case 'REPLANTEO_MENU':
+      case 'TOPO_MENU':
+      case 'OCC_TRISEC':
+      case 'COORD_MENU':
+      case 'DESPLZ_MENU':
+      case 'EDM_MENU':
+      case 'TRISEC_AJ':
+      case 'VER_DETAIL':
+        return ['', '', '', ''];
+      case 'OCC_ORIEN':
+        if (activeField <= 4) return ['CARG', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
+        if (activeField === 5) return ['AGR', 'LIST', 'BUSC', ''];
+        if (activeField <= 10) return ['', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
+        return ['0ppm', 'ACLE.R', 'E.RXYZ', 'TRISEC'];
+      case 'OCC_LOAD_LIST':
+        return ['↑↓…P', '1RO', 'ULTIM', 'BUSC'];
+      case 'OCC_LOAD_SEARCH':
+        return ['', '', '', 'OK'];
+      case 'ERXYZ':
+        return ['CARG', '', '', 'OK'];
+      case 'CODE_LIST':
+        return ['↑↓…P', '1RO', 'ULTIM', ''];
+      case 'CODE_SEARCH':
+        return ['', '1RO', 'ULTIM', ''];
+      case 'CODE_ADD':
+        return ['', '', 'NO', 'SI'];
+      case 'TRISEC_PT':
+        return ['', '', '', 'MED'];
+      case 'OBS':
+        return [obsMeasured ? 'REG' : '', 'DESPLZ', 'AUTO', 'MED'];
+      case 'REPL_DATA':
+        return ['CARG', 'DISP', '', 'OK'];
+      case 'REPL_OBS':
+        return ['GHV', 'DISP', '◄►', 'MED'];
+      case 'TOPO_PTTRN':
+        return ['PTTRN', '', '', 'OK'];
+      case 'TOPO_MODEL':
+        return ['', 'REG', '', 'OK'];
+      case 'JOB_DETAILS':
+      case 'KNOWN_INPUT':
+        return ['', '', '', 'OK'];
+      case 'KNOWN_NEW':
+        return ['', '', '', 'REG'];
+      case 'JOB':
+        return ['LIST', '', '', 'ENT'];
+      default:
+        return null;
+    }
+  };
+
+  // ---------- Tecla F1-F4 ----------
+  const ovFKey = (f: 1 | 2 | 3 | 4): boolean => {
+    if (measureAnim.active) {
+      if (f === 4) stopMeasurement(false);
+      return true;
+    }
+    if (isStarMenuOpen) {
+      if (f === 4 && starMode === 'SETTINGS') { setStarMode('MENU'); setStarMenuIdx(0); }
+      return true;
+    }
+    switch (screenState) {
+      case 'MED': {
+        if (medPage === 1) {
+          if (f === 1) startMeasurement(() => { leerDistanciometro(); });
+          else if (f === 2) setMedView(v => (v === 'GHV' ? 'NORMAL' : 'GHV'));
+          else if (f === 3) goCompen('MED', 'MED');
+          else { setScreenState('COORD_MENU'); setMenuSelection(1); }
+        } else if (medPage === 2) {
+          if (f === 1) { setScreenState('GRAPHIC_MENU'); setGraphicMenuIdx(0); }
+          else if (f === 2) goCompen('MED', 'MED');
+          else if (f === 3) setLcdMessage(`ÁNGULO H:\n${formatDMS(envHD)}`);
+          else openEdm('MED');
+        } else {
+          if (f === 1) startMeasurement(() => { leerDistanciometro(); });
+          else if (f === 2) { setDesplzReturn('MED'); setScreenState('DESPLZ_MENU'); setDesplzMenuSelection(1); }
+          else if (f === 3) { setScreenState('TOPO_MENU'); setTopoMenuSelection(1); }
+          else { setScreenState('REPLANTEO_MENU'); setReplMenuSelection(1); }
+        }
+        return true;
+      }
+      case 'COMPEN':
+        if (f === 1) { ovEnter(); return true; }
+        return false; // F2 PLGETT: comportamiento original
+      case 'GRAPHIC_MENU':
+      case 'REPLANTEO_MENU':
+      case 'TOPO_MENU':
+      case 'OCC_TRISEC':
+      case 'COORD_MENU':
+      case 'DESPLZ_MENU':
+      case 'EDM_MENU':
+      case 'TRISEC_AJ':
+      case 'VER_DETAIL':
+        return true; // Sin softkeys en el equipo real
+      case 'OCC_ORIEN': {
+        commitCurrentField();
+        if (activeField === 5) {
+          const cd = (inputBuffer.trim() || stationAtm.CD).toUpperCase();
+          if (f === 1) { setCodeSearchBuffer(cd); setScreenState('CODE_ADD'); }
+          else if (f === 2) {
+            const i = codeList.indexOf(cd);
+            setCodeIdx(i >= 0 ? i : 0);
+            setScreenState('CODE_LIST');
+          } else if (f === 3) { setCodeSearchBuffer(''); setCodeIdx(0); setScreenState('CODE_SEARCH'); }
+          return true;
+        }
+        if (f === 1) {
+          if (activeField <= 4) openPicker('OCC');
+          else if (activeField >= 11) {
+            setStationAtm(a => ({ ...a, ppm: '0' }));
+            if (activeField === 13) setInputBuffer('0');
+            setLcdMessage('PPm = 0');
+          }
+        } else if (f === 2) { setInputBuffer(''); setScreenState('OCC_ACLER'); }
+        else if (f === 3) { setScreenState('ERXYZ'); setActiveField(0); }
+        else { setScreenState('OCC_TRISEC'); setTrisecSelection(1); }
+        return true;
+      }
+      case 'OCC_LOAD_LIST': {
+        const n = pointRecords.length;
+        if (f === 1) setSelectedOccLoadIdx(i => (i + 5 < n ? i + 5 : 0));
+        else if (f === 2) setSelectedOccLoadIdx(0);
+        else if (f === 3) setSelectedOccLoadIdx(Math.max(0, n - 1));
+        else { setOccSearchBuffer(''); setSearchField(0); setScreenState('OCC_LOAD_SEARCH'); }
+        return true;
+      }
+      case 'OCC_LOAD_SEARCH':
+        if (f === 4) buscarRegistro();
+        return true;
+      case 'ERXYZ':
+        if (f === 1) { commitCurrentField(); openPicker('BS'); }
+        else if (f === 4) prepararComprobacionOrientacion();
+        return true;
+      case 'CODE_LIST': {
+        const n = codeList.length;
+        if (f === 1) setCodeIdx(i => (i + 5 < n ? i + 5 : 0));
+        else if (f === 2) setCodeIdx(0);
+        else if (f === 3) setCodeIdx(Math.max(0, n - 1));
+        return true;
+      }
+      case 'CODE_SEARCH':
+        if (f === 2) setCodeIdx(0);
+        else if (f === 3) setCodeIdx(Math.max(0, filteredCodes.length - 1));
+        return true;
+      case 'CODE_ADD': {
+        if (f === 3) { setScreenState('OCC_ORIEN'); setActiveField(5); }
+        else if (f === 4) {
+          const cd = codeSearchBuffer.trim().toUpperCase();
+          if (cd) {
+            const existe = codeList.includes(cd);
+            if (!existe) setCodeList(prev => [...prev, cd]);
+            setStationAtm(a => ({ ...a, CD: cd }));
+            playLaserBeep();
+            setLcdMessage(existe ? `Cd ${cd}\nSOBRESCRITO` : `Cd ${cd}\nAGREGADO`);
+          }
+          setTimeout(() => { setScreenState('OCC_ORIEN'); setActiveField(5); }, 900);
+        }
+        return true;
+      }
+      case 'TRISEC_PT':
+        if (f === 4) startMeasurement(() => { leerDistanciometro(); });
+        return true;
+      case 'OBS':
+        commitCurrentField();
+        if (f === 1) { if (obsMeasured) registrarPuntoObservado(); }
+        else if (f === 2) { setDesplzReturn('OBS'); setScreenState('DESPLZ_MENU'); setDesplzMenuSelection(1); }
+        else if (f === 3) ejecutarLevantamientoAuto();
+        else startMeasurement(() => { leerDistanciometro(); setObsMeasured(true); });
+        return true;
+      case 'REPL_DATA':
+        if (f === 1) { setInputBuffer(''); openPicker('REPL'); }
+        else if (f === 2) {
+          commitReplDispField();
+          setReplDisplayMode(m => (m === 'COORD' ? 'DISP' : 'COORD'));
+          setActiveField(0);
+          setInputBuffer('');
+        } else if (f === 4) { commitReplDispField(); goCompen('REPL', 'REPL_DATA'); }
+        return true;
+      case 'REPL_OBS':
+        if (f === 1) setMedView(v => (v === 'GHV' ? 'NORMAL' : 'GHV'));
+        else if (f === 2) { setScreenState('REPL_DATA'); setReplDisplayMode('DISP'); setActiveField(0); setInputBuffer(''); }
+        else if (f === 3) setLcdMessage('◄► DESPLAZAR\nVISTA DE REPLANTEO');
+        else startMeasurement(() => { leerDistanciometro(); });
+        return true;
+      case 'TOPO_PTTRN':
+        if (f === 1) { setTopoModelIdx(0); setScreenState('TOPO_MODEL'); }
+        else if (f === 4) goObservacion('TOPO_MENU');
+        return true;
+      case 'TOPO_MODEL':
+        if (f === 2 || f === 4) {
+          playLaserBeep();
+          setLcdMessage('MODELO OBS\nREGISTRADO');
+          setTimeout(() => setScreenState('TOPO_PTTRN'), 800);
+        }
+        return true;
+      case 'JOB_DETAILS':
+      case 'KNOWN_INPUT':
+      case 'KNOWN_NEW':
+      case 'JOB':
+        return f === 3; // ALF (F3) eliminado: el modo de texto se cambia con SHIFT
+      default:
+        return false;
+    }
+  };
+
+  // ---------- Tecla ENT ----------
+  const ovEnter = (): boolean => {
+    if (measureAnim.active) return true;
+    if (isStarMenuOpen) {
+      if (starMode === 'SETTINGS') {
+        setStarMode('MENU');
+        setStarMenuIdx(0);
+      } else {
+        const item = STAR_MENU_ITEMS[starMenuIdx];
+        setIsStarMenuOpen(false);
+        setStarMode('SETTINGS');
+        if (item.go === 'GRAPHIC_MENU') setGraphicMenuIdx(0);
+        if (item.go === 'COORD_MENU' || item.go === 'DATO_MENU') setMenuSelection(1);
+        setScreenState(item.go);
+      }
+      return true;
+    }
+    switch (screenState) {
+      case 'MED':
+        return true;
+      case 'COMPEN':
+        if (compenCtx === 'TRISEC') setScreenState('TRISEC_PT');
+        else if (compenCtx === 'OBS') goObservacion(compenReturn);
+        else if (compenCtx === 'REPL') setScreenState('REPL_OBS');
+        else setScreenState(compenReturn);
+        return true;
+      case 'COORD_MENU':
+        if (menuSelection === 1) { setScreenState('OCC_ORIEN'); setActiveField(0); }
+        else if (menuSelection === 2) goCompen('OBS', 'COORD_MENU');
+        else openEdm('COORD_MENU');
+        return true;
+      case 'REPLANTEO_MENU':
+        if (replMenuSelection === 3) { goCompen('OBS', 'REPLANTEO_MENU'); return true; }
+        if (replMenuSelection === 4) { openEdm('REPLANTEO_MENU'); return true; }
+        return false;
+      case 'TOPO_MENU':
+        if (topoMenuSelection === 1) { setTopoPttrn(p => ({ ...p, field: 0 })); setScreenState('TOPO_PTTRN'); return true; }
+        if (topoMenuSelection === 3) { openPicker('VER'); return true; }
+        return false;
+      case 'GRAPHIC_MENU': {
+        const item = GRAPHIC_MENU_ITEMS[graphicMenuIdx];
+        if (item.id === 'mer') { setLcdMessage('MEDICIÓN ELEV.\nREMOTA (MER)'); return true; }
+        if (item.id === 'intersec') { setLcdMessage('INTERSECCIÓN:\nDEFINA 2 LÍNEAS'); return true; }
+        return false;
+      }
+      case 'OCC_TRISEC':
+        if (trisecSelection === 3) { setTrisecAj(a => ({ ...a, field: 0 })); setScreenState('TRISEC_AJ'); }
+        else goCompen('TRISEC', 'OCC_TRISEC');
+        return true;
+      case 'TRISEC_AJ':
+        setScreenState('OCC_TRISEC');
+        return true;
+      case 'TRISEC_PT':
+        return true;
+      case 'OCC_ORIEN':
+        commitCurrentField();
+        if (activeField < 13) setActiveField(f => f + 1);
+        else setLcdMessage('DATOS ESTACIÓN\nGUARDADOS');
+        return true;
+      case 'OCC_LOAD_LIST': {
+        const rec = pointRecords[selectedOccLoadIdx];
+        if (rec) loadRecord(rec, selectedOccLoadIdx);
+        return true;
+      }
+      case 'OCC_LOAD_SEARCH':
+        if (searchField < 2) setSearchField(s => s + 1);
+        else buscarRegistro();
+        return true;
+      case 'VER_DETAIL':
+        setScreenState('OCC_LOAD_LIST');
+        return true;
+      case 'ERXYZ':
+        commitCurrentField();
+        if (activeField < 2) setActiveField(f => f + 1);
+        else prepararComprobacionOrientacion();
+        return true;
+      case 'CODE_LIST': {
+        const cd = codeList[codeIdx];
+        if (cd) { setStationAtm(a => ({ ...a, CD: cd })); setInputBuffer(cd); }
+        setScreenState('OCC_ORIEN');
+        setActiveField(5);
+        return true;
+      }
+      case 'CODE_SEARCH': {
+        const cd = filteredCodes[codeIdx];
+        if (!cd) { setLcdMessage('no hay datos'); return true; }
+        setStationAtm(a => ({ ...a, CD: cd }));
+        setInputBuffer(cd);
+        setScreenState('OCC_ORIEN');
+        setActiveField(5);
+        return true;
+      }
+      case 'CODE_ADD':
+        return ovFKey(4);
+      case 'EDM_MENU':
+        commitEdmField();
+        setEdmField(f => (f + 1) % 8);
+        return true;
+      case 'OBS': {
+        commitCurrentField();
+        const pos = OBS_FIELD_ORDER.indexOf(activeField);
+        setActiveField(OBS_FIELD_ORDER[(pos + 1) % OBS_FIELD_ORDER.length]);
+        return true;
+      }
+      case 'REPL_DATA':
+        if (replDisplayMode === 'DISP') {
+          commitReplDispField();
+          setActiveField(f => (f === 0 ? 1 : 0));
+        } else {
+          goCompen('REPL', 'REPL_DATA');
+        }
+        return true;
+      case 'REPL_OBS':
+        return true;
+      case 'TOPO_PTTRN':
+        goObservacion('TOPO_MENU');
+        return true;
+      case 'TOPO_MODEL':
+        return ovFKey(4);
+      default:
+        return false;
+    }
+  };
+
+  // ---------- Tecla ESC ----------
+  const ovEsc = (): boolean => {
+    if (measureAnim.active) { stopMeasurement(false); return true; }
+    if (isStarMenuOpen) {
+      setIsStarMenuOpen(false);
+      setStarMode('SETTINGS');
+      return true;
+    }
+    setLcdMessage(null);
+    switch (screenState) {
+      case 'COMPEN':
+        // En Trisección y Replanteo, ESC tras nivelar continúa a la pantalla de medición (según el equipo)
+        if (compenCtx === 'TRISEC') setScreenState('TRISEC_PT');
+        else if (compenCtx === 'REPL') setScreenState('REPL_OBS');
+        else setScreenState(compenReturn);
+        return true;
+      case 'TRISEC_PT':
+      case 'TRISEC_AJ':
+        setScreenState('OCC_TRISEC');
+        return true;
+      case 'OCC_TRISEC':
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+        return true;
+      case 'OCC_LOAD_LIST':
+        setScreenState(pickerReturnScreen(pickCtx));
+        return true;
+      case 'OCC_LOAD_SEARCH':
+      case 'VER_DETAIL':
+        setScreenState('OCC_LOAD_LIST');
+        return true;
+      case 'CODE_LIST':
+      case 'CODE_SEARCH':
+      case 'CODE_ADD':
+        setScreenState('OCC_ORIEN');
+        setActiveField(5);
+        return true;
+      case 'ERXYZ':
+        commitCurrentField();
+        setScreenState('OCC_ORIEN');
+        setActiveField(0);
+        return true;
+      case 'EDM_MENU':
+        setEdmBuffer('');
+        setScreenState(prevScreenBeforeEdm || 'MED');
+        return true;
+      case 'DESPLZ_MENU':
+        setScreenState(desplzReturn);
+        return true;
+      case 'OBS':
+        commitCurrentField();
+        setScreenState(obsReturn);
+        return true;
+      case 'REPL_DATA':
+        setInputBuffer('');
+        setScreenState('REPLANTEO_MENU');
+        return true;
+      case 'REPL_OBS':
+        setScreenState('REPL_DATA');
+        return true;
+      case 'TOPO_PTTRN':
+        setScreenState('TOPO_MENU');
+        return true;
+      case 'TOPO_MODEL':
+        setScreenState('TOPO_PTTRN');
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  // ---------- Flechas ----------
+  const ovArrow = (dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'): boolean => {
+    if (measureAnim.active) return true;
+    const up = dir === 'UP';
+    const down = dir === 'DOWN';
+    const lr: 1 | -1 = dir === 'RIGHT' ? 1 : -1;
+    if (isStarMenuOpen) {
+      if (starMode === 'MENU' && (up || down)) {
+        setStarMenuIdx(i => (i + (down ? 1 : -1) + STAR_MENU_ITEMS.length) % STAR_MENU_ITEMS.length);
+      }
+      return true;
+    }
+    switch (screenState) {
+      case 'COMPEN':
+        // Nivelación fina con flechas: ◄ ► eje X (tornillos A+B), ▲ ▼ eje Y (tornillo C)
+        if (up || down) setCompenY(y => Math.max(-COMPEN_LIMIT, Math.min(COMPEN_LIMIT, y + (up ? 10 : -10))));
+        else setCompenX(x => Math.max(-COMPEN_LIMIT, Math.min(COMPEN_LIMIT, x + lr * 10)));
+        return true;
+      case 'COORD_MENU':
+        if (up || down) setMenuSelection(s => ((s - 1 + (down ? 1 : -1) + 3) % 3) + 1);
+        return true;
+      case 'OCC_TRISEC':
+        if (up || down) setTrisecSelection(s => ((s - 1 + (down ? 1 : -1) + 3) % 3) + 1);
+        return true;
+      case 'TRISEC_AJ':
+        if (up || down) setTrisecAj(a => ({ ...a, field: a.field === 0 ? 1 : 0 }));
+        else setTrisecAj(a => (a.field === 0 ? { ...a, obsCara: a.obsCara === 'No' ? 'Si' : 'No' } : { ...a, z: a.z === 'On' ? 'Off' : 'On' }));
+        return true;
+      case 'TRISEC_PT':
+      case 'REPL_OBS':
+        return true;
+      case 'OCC_ORIEN':
+        if (up || down) {
+          commitCurrentField();
+          setActiveField(f => (f + (down ? 1 : -1) + 14) % 14);
+        } else if (activeField === 9) {
+          setStationAtm(a => ({ ...a, clima: cycleOption(CLIMA_OPTIONS, a.clima, lr) }));
+        } else if (activeField === 10) {
+          setStationAtm(a => ({ ...a, viento: cycleOption(VIENTO_OPTIONS, a.viento, lr) }));
+        }
+        return true;
+      case 'OCC_LOAD_LIST': {
+        const n = pointRecords.length;
+        if (n && (up || down)) setSelectedOccLoadIdx(i => (i + (down ? 1 : -1) + n) % n);
+        return true;
+      }
+      case 'OCC_LOAD_SEARCH':
+        if (up || down) setSearchField(s => (s + (down ? 1 : -1) + 3) % 3);
+        else if (searchField === 1) setSearchCriteria(c => (c === 'Completo' ? 'Parcial' : 'Completo'));
+        else if (searchField === 2) setSearchDirection(d => (d === '↓' ? '↑' : '↓'));
+        return true;
+      case 'VER_DETAIL': {
+        const n = pointRecords.length;
+        if (n && (up || down)) {
+          const next = (verDetailIdx + (down ? 1 : -1) + n) % n;
+          setVerDetailIdx(next);
+          setSelectedOccLoadIdx(next);
+        }
+        return true;
+      }
+      case 'ERXYZ':
+        if (up || down) {
+          commitCurrentField();
+          setActiveField(f => (f + (down ? 1 : -1) + 3) % 3);
+        }
+        return true;
+      case 'CODE_LIST': {
+        const n = codeList.length;
+        if (n && (up || down)) setCodeIdx(i => (i + (down ? 1 : -1) + n) % n);
+        return true;
+      }
+      case 'CODE_SEARCH': {
+        const n = filteredCodes.length;
+        if (n && (up || down)) setCodeIdx(i => (i + (down ? 1 : -1) + n) % n);
+        return true;
+      }
+      case 'CODE_ADD':
+        return true;
+      case 'EDM_MENU':
+        if (up || down) {
+          commitEdmField();
+          setEdmField(f => (f + (down ? 1 : -1) + 8) % 8);
+        } else {
+          if (edmField === 0) setEdmCfg(c => ({ ...c, modo: cycleOption(EDM_MODOS, c.modo, lr) }));
+          else if (edmField === 1) setReflectorByName(cycleOption(EDM_REFLECTORES, currentReflectorName, lr));
+          else if (edmField === 2) setEdmCfg(c => ({ ...c, cp: Math.max(-99, Math.min(99, c.cp + lr)) }));
+          else if (edmField === 3) setEdmCfg(c => ({ ...c, mantIlum: cycleOption(EDM_MANT_ILUM, c.mantIlum, lr) }));
+          else if (edmField === 4) setEdmCfg(c => ({ ...c, luzGuia: cycleOption(EDM_LUZ_GUIA, c.luzGuia, lr) }));
+          else if (edmField === 5) setStationAtm(a => ({ ...a, temp: String(Math.max(-35, Math.min(60, (parseFloat(a.temp) || 0) + lr))) }));
+          else if (edmField === 6) setStationAtm(a => ({ ...a, pres: String(Math.max(500, Math.min(1400, (parseFloat(a.pres) || 1013) + lr))) }));
+          else setStationAtm(a => ({ ...a, ppm: String(Math.max(-499, Math.min(499, (parseFloat(a.ppm) || 0) + lr))) }));
+        }
+        return true;
+      case 'DESPLZ_MENU':
+        return false;
+      case 'OBS':
+        if (up || down) {
+          commitCurrentField();
+          const pos = OBS_FIELD_ORDER.indexOf(activeField);
+          setActiveField(OBS_FIELD_ORDER[(pos + (down ? 1 : -1) + OBS_FIELD_ORDER.length) % OBS_FIELD_ORDER.length]);
+        }
+        return true;
+      case 'REPL_DATA':
+        if (replDisplayMode === 'DISP' && (up || down)) {
+          commitReplDispField();
+          setActiveField(f => (f === 0 ? 1 : 0));
+        }
+        return true;
+      case 'TOPO_PTTRN':
+        if (up || down) setTopoPttrn(p => ({ ...p, field: (p.field + (down ? 1 : -1) + 4) % 4 }));
+        else setTopoPttrn(p => {
+          if (p.field === 0) return { ...p, sets: Math.max(1, Math.min(9, p.sets + lr)) };
+          if (p.field === 1) return { ...p, obs: Math.max(1, Math.min(9, p.obs + lr)) };
+          if (p.field === 2) return { ...p, obsP12: p.obsP12 === 'NO' ? 'SI' : 'NO' };
+          return { ...p, preenter: p.preenter === 'NO' ? 'SI' : 'NO' };
+        });
+        return true;
+      case 'TOPO_MODEL':
+        if (up || down) setTopoModelIdx(i => (i + (down ? 1 : -1) + 4) % 4);
+        else setTopoModels(m => m.map((v, i) => (i === topoModelIdx ? (v === 'CLEV' ? '' : 'CLEV') : v)));
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  // ---------- Teclado numérico / alfanumérico ----------
+  const ovKey = (key: string): boolean => {
+    if (measureAnim.active || isStarMenuOpen) return true;
+    switch (screenState) {
+      case 'COORD_MENU':
+        if (key === '1' || key === '2' || key === '3') {
+          setMenuSelection(Number(key));
+          if (key === '1') { setScreenState('OCC_ORIEN'); setActiveField(0); }
+          else if (key === '2') goCompen('OBS', 'COORD_MENU');
+          else openEdm('COORD_MENU');
+        }
+        return true;
+      case 'OCC_TRISEC':
+        if (key === '1' || key === '2' || key === '3') {
+          setTrisecSelection(Number(key));
+          if (key === '3') { setTrisecAj(a => ({ ...a, field: 0 })); setScreenState('TRISEC_AJ'); }
+          else goCompen('TRISEC', 'OCC_TRISEC');
+        }
+        return true;
+      case 'REPLANTEO_MENU':
+        if (key === '3') { setReplMenuSelection(3); goCompen('OBS', 'REPLANTEO_MENU'); return true; }
+        if (key === '4') { setReplMenuSelection(4); openEdm('REPLANTEO_MENU'); return true; }
+        return false;
+      case 'TOPO_MENU':
+        if (key === '1') { setTopoMenuSelection(1); setScreenState('TOPO_PTTRN'); return true; }
+        if (key === '3') { setTopoMenuSelection(3); openPicker('VER'); return true; }
+        return false;
+      case 'OCC_LOAD_SEARCH':
+        if (searchField === 0) setOccSearchBuffer(applyKeyToBuffer(key, occSearchBuffer));
+        return true;
+      case 'CODE_SEARCH':
+        setCodeSearchBuffer(applyKeyToBuffer(key, codeSearchBuffer));
+        setCodeIdx(0);
+        return true;
+      case 'EDM_MENU':
+        if (edmField === 2 || edmField >= 5) setEdmBuffer(b => applyNumericKey(key, b));
+        return true;
+      case 'REPL_DATA':
+        if (replDisplayMode === 'DISP') setInputBuffer(b => applyNumericKey(key, b));
+        return true;
+      case 'OCC_ORIEN':
+        if (activeField >= 7 && activeField <= 10) return true; // Fech, Tiem (automáticos) y Clima, Viento (◄ ►)
+        break;
+      case 'TRISEC_PT':
+      case 'TRISEC_AJ':
+      case 'VER_DETAIL':
+      case 'CODE_LIST':
+      case 'CODE_ADD':
+      case 'REPL_OBS':
+      case 'TOPO_PTTRN':
+      case 'TOPO_MODEL':
+      case 'OCC_LOAD_LIST':
+        return true;
+      default:
+        break;
+    }
+    // Campos de texto: escritura según el modo NUM / ALF / SIM (SHIFT)
+    if (isCurrentFieldAlpha) {
+      // Se calcula fuera del actualizador de estado: la multi-pulsación usa una ref y no debe ejecutarse dos veces
+      setInputBuffer(applyKeyToBuffer(key, inputBuffer));
+      return true;
+    }
+    return key.startsWith('RAW:');
+  };
+
+  // ---------- SHIFT: cambia el modo de entrada NUM -> ALF -> SIM ----------
+  const ovShift = () => {
+    if (!isCurrentFieldAlpha) {
+      setLcdMessage('SHIFT: CAMPO\nSOLO NUMÉRICO');
+      return;
+    }
+    lastTapRef.current = { key: '', time: 0, idx: 0 };
+    setInputMode(m => (m === 'NUM' ? 'ALF' : m === 'ALF' ? 'SIM' : 'NUM'));
+  };
+
+  // ---------- FUNC en Estacionamiento: salta a la siguiente pantalla de campos ----------
+  const ovFunc = (): boolean => {
+    if (screenState === 'OCC_ORIEN') {
+      commitCurrentField();
+      const pg = occPageOf(activeField);
+      setActiveField(OCC_PAGES[(pg + 1) % OCC_PAGES.length][0]);
+      return true;
+    }
+    return false;
+  };
+
+  overrideRef.current = {
+    fkey: ovFKey,
+    enter: ovEnter,
+    esc: ovEsc,
+    arrow: ovArrow,
+    key: ovKey,
+    shift: ovShift,
+    func: ovFunc
+  };
+
   // Soporte directo para teclado físico de PC
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2540,9 +3605,10 @@ export default function App() {
         return;
       }
 
-      if (isCurrentFieldAlpha && e.key.length === 1 && /^[a-zA-Z0-9_\-\s]$/.test(e.key)) {
+      // Teclado de PC en campos de texto: escribe el carácter tal cual (sin multi-pulsación)
+      if (isCurrentFieldAlpha && e.key.length === 1 && /^[a-zA-Z0-9_\-\s.]$/.test(e.key)) {
         e.preventDefault();
-        handleKeypadPress(e.key.toUpperCase());
+        handleKeypadPress(`RAW:${e.key.toUpperCase()}`);
         return;
       }
 
@@ -2594,6 +3660,8 @@ export default function App() {
 
   // Etiquetas dinámicas para F1-F4 según la máquina de estados
   const getFKeyLabels = (): [string, string, string, string] => {
+    const ovLabels = overrideFKeyLabels();
+    if (ovLabels) return ovLabels;
     switch (screenState) {
       case 'TILT':
         return ['OK', '', '', 'TILT'];
@@ -2768,6 +3836,30 @@ export default function App() {
             <path d="M 28,62 A 12,12 0 0,0 26,56" strokeWidth="1.5" />
           </svg>
         );
+      case 'mer':
+        // Opción MER: Medición de Elevación Remota (prisma abajo, punto alto encima)
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="8" y1="70" x2="72" y2="70" strokeWidth="2" />
+            <line x1="56" y1="70" x2="56" y2="14" strokeWidth="2.5" />
+            <circle cx="56" cy="14" r="4" fill="currentColor" />
+            <polygon points="56,62 51,70 61,70" fill="currentColor" />
+            <line x1="16" y1="64" x2="56" y2="62" strokeWidth="1.5" />
+            <line x1="16" y1="64" x2="56" y2="14" strokeWidth="1.5" strokeDasharray="3,2" />
+            <rect x="12" y="62" width="8" height="8" fill="currentColor" />
+          </svg>
+        );
+      case 'intersec':
+        // Opción Intersec.: intersección de dos líneas
+        return (
+          <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
+            <line x1="10" y1="66" x2="70" y2="18" strokeWidth="2" />
+            <line x1="10" y1="22" x2="70" y2="62" strokeWidth="2" />
+            <circle cx="10" cy="66" r="3" fill="currentColor" />
+            <circle cx="10" cy="22" r="3" fill="currentColor" />
+            <circle cx="40" cy="42" r="5" strokeWidth="2" />
+          </svg>
+        );
       case 'calc_area':
         return (
           <svg viewBox="0 0 80 80" className="w-full h-full" stroke="currentColor" fill="none">
@@ -2923,9 +4015,10 @@ export default function App() {
             <div className="space-y-2 text-xs text-[#544E43] leading-relaxed font-sans">
               <p>• <b>Arranque:</b> Al encender, el LCD muestra el Nivel Electrónico. Pulsa <b className="text-[#945F03]">[F1 OK]</b> para ingresar.</p>
               <p>• <b>Menú DATO y USB:</b> Pulsa <b className="text-rose-600">[ESC]</b> en la pantalla principal. Entra a <b className="text-[#945F03]">1. TRABAJO</b> para nombrar el proyecto o a <b className="text-emerald-700">3. EXPORTAR A USB</b> para descargar el CSV.</p>
-              <p>• <b>Botón [SFT]:</b> Pulsa <b className="text-[#945F03]">[SFT]</b> para ciclar entre Prisma, Tarjeta y Lectura Directa.</p>
-              <p>• <b>Botón [FUNC]:</b> Alterna las etiquetas F1-F4 entre Pág 1 y Pág 2.</p>
-              <p>• <b>Levantamiento:</b> En Observación, pulsa el botón físico <b className="text-[#945F03]">[F3 AUTO]</b> para disparar y auto-incrementar el PTO.</p>
+              <p>• <b>Botón [SHIFT]:</b> En campos de texto cambia el modo de escritura: <b>NUM</b> (números) → <b>ALF</b> (letras) → <b>SIM</b> (signos). En ALF pulsa la misma tecla varias veces para elegir la letra (7 = A, B, C).</p>
+              <p>• <b>Botón [FUNC]:</b> Cambia entre las 3 páginas de MED y salta de pantalla en Estacionamiento.</p>
+              <p>• <b>Reflector EDM:</b> Se cambia en MED Pág 2 → <b>EDM</b> o en COORD → <b>3. EDM</b>.</p>
+              <p>• <b>Levantamiento:</b> En Observación, <b className="text-[#945F03]">[F4 MED]</b> mide y habilita <b>[F1 REG]</b>; <b className="text-[#945F03]">[F3 AUTO]</b> mide y registra de una vez.</p>
             </div>
           </div>
         </div>
@@ -2986,31 +4079,53 @@ export default function App() {
               >
                 {/* MODAL / OVERLAY AJUSTES RÁPIDOS (BOTÓN FÍSICO DE ESTRELLA ★) */}
                 {isStarMenuOpen && (
-                  <div
-                    onClick={() => setIsStarMenuOpen(false)}
-                    className="absolute inset-0 bg-[#9CA3AF] text-neutral-950 z-40 p-2.5 flex flex-col justify-between font-mono select-none"
-                  >
-                    <div className="border-b border-neutral-800/40 pb-0.5 flex justify-between items-center text-xs font-bold">
-                      <span>AJUSTES RÁPIDOS</span>
-                      <span className="text-[11px]">★</span>
-                    </div>
-                    <div className="flex-1 py-2 flex flex-col justify-center space-y-2 text-xs">
-                      <div className="flex justify-between items-center px-1">
-                        <span>Compens.</span>
-                        <span className="font-bold">X(H, V)</span>
+                  <div className="absolute inset-0 bg-[#9CA3AF] text-neutral-950 z-40 p-2.5 flex flex-col justify-between font-mono select-none">
+                    {starMode === 'SETTINGS' ? (
+                      <>
+                        <div className="border-b border-neutral-800/40 pb-0.5 flex justify-between items-center text-xs font-bold">
+                          <span>AJUSTES RÁPIDOS</span>
+                          <span className="text-[11px]">★</span>
+                        </div>
+                        <div className="flex-1 py-2 flex flex-col justify-center space-y-2 text-xs">
+                          <div className="flex justify-between items-center px-1">
+                            <span>Compens.</span>
+                            <span className="font-bold">:Si(H,V)</span>
+                          </div>
+                          <div className="flex justify-between items-center px-1">
+                            <span>Contraste</span>
+                            <span className="font-bold">:5</span>
+                          </div>
+                          <div className="flex justify-between items-center px-1">
+                            <span>Niv Retic</span>
+                            <span className="font-bold">:3</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-center border-t border-neutral-800/40 pt-1 font-bold">
+                          Pulse &lt;ENT&gt; tecla menú
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex h-full gap-2">
+                        <div className="flex-1 space-y-0.5 text-xs pt-1">
+                          {STAR_MENU_ITEMS.map((item, i) => (
+                            <div
+                              key={item.name}
+                              onClick={() => setStarMenuIdx(i)}
+                              className={`px-1.5 py-0.5 rounded cursor-pointer ${starMenuIdx === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                            >
+                              {item.name}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="w-24 flex flex-col items-center justify-center border border-neutral-800/40 rounded bg-black/5">
+                          <svg viewBox="0 0 60 50" className="w-16 h-14" fill="none" stroke="#171717" strokeWidth="2">
+                            <path d="M6 14 h16 l5 5 h27 v25 h-48 z" />
+                            <path d="M6 22 h48" />
+                          </svg>
+                          <span className="text-[10px] font-black">{STAR_MENU_ITEMS[starMenuIdx].name}</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center px-1">
-                        <span>Contraste</span>
-                        <span className="font-bold">5</span>
-                      </div>
-                      <div className="flex justify-between items-center px-1">
-                        <span>Niv Retic</span>
-                        <span className="font-bold">3</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-center border-t border-neutral-800/40 pt-1 font-bold">
-                      Pulse &lt;ENT&gt; para salir (o ESC)
-                    </div>
+                    )}
                   </div>
                 )}
 
@@ -3029,7 +4144,7 @@ export default function App() {
                         : screenState === 'OBS'
                         ? 'REC'
                         : screenState === 'OCC_ORIEN'
-                        ? `P${occPage}`
+                        ? `P${occPageOf(activeField) + 1}`
                         : screenState === 'OCC_LOAD_LIST'
                         ? 'LIST'
                         : screenState === 'OCC_LOAD_SEARCH'
@@ -3056,20 +4171,30 @@ export default function App() {
                         ? 'OFFS'
                         : screenState === 'USB_MENU' || screenState === 'USB_TTYPE'
                         ? 'USB'
+                        : screenState === 'TRISEC_PT' || screenState === 'TRISEC_AJ'
+                        ? 'TRIS'
+                        : screenState === 'CODE_LIST' || screenState === 'CODE_SEARCH' || screenState === 'CODE_ADD'
+                        ? 'Cd'
+                        : screenState === 'VER_DETAIL'
+                        ? 'VER'
+                        : screenState === 'TOPO_PTTRN' || screenState === 'TOPO_MODEL'
+                        ? 'TOPO'
+                        : screenState === 'REPL_OBS'
+                        ? 'REPL'
                         : 'MENU'}
                     </span>
 
-                    {/* Modo EDM ciclado por botón físico SFT */}
+                    {/* Reflector EDM (se cambia en la pantalla EDM) */}
                     <span
-                      onClick={handleShiftPress}
-                      className="cursor-pointer bg-neutral-800/20 hover:bg-neutral-800/30 px-1 rounded text-[10px]"
-                      title="Pulsa SFT para cambiar de Prisma a Tarjeta o Directa"
+                      className="bg-neutral-800/20 px-1 rounded text-[10px]"
+                      title="Reflector EDM (se cambia en MED Pág 2 > EDM o en COORD > EDM)"
                     >
                       [{getEdmBadge()}]
                     </span>
 
-                    <span className="text-neutral-900 text-[10px]">
-                      {isCurrentFieldAlpha ? '[ALP]' : '[NUM]'}
+                    {/* Modo de entrada (SHIFT): NUM / ALP / SIM */}
+                    <span className="text-neutral-900 text-[10px]" title="SHIFT cambia el modo de escritura en campos de texto">
+                      {isCurrentFieldAlpha ? (inputMode === 'NUM' ? '[NUM]' : inputMode === 'ALF' ? '[ALP]' : '[SIM]') : '[NUM]'}
                     </span>
                   </div>
 
@@ -3082,22 +4207,10 @@ export default function App() {
                     <span className="text-[9px] bg-neutral-800/20 px-1 rounded font-mono font-bold truncate max-w-[80px]" title={`Proyecto: ${jobName}`}>
                       {jobName}
                     </span>
-                    {(() => {
-                      const isMed = screenState === 'MED';
-                      const pct = isMed ? (medPage === 1 ? '20%' : '70%') : '100%';
-                      return (
-                        <div className="flex items-center gap-1 font-bold text-neutral-950" title={`Batería ${pct}`}>
-                          {isMed && medPage === 1 ? (
-                            <BatteryLow size={13} className="stroke-[2.5]" />
-                          ) : isMed ? (
-                            <BatteryMedium size={13} className="stroke-[2.5]" />
-                          ) : (
-                            <Battery size={13} className="stroke-[2.5]" />
-                          )}
-                          <span className="text-[10px]">{pct}</span>
-                        </div>
-                      );
-                    })()}
+                    <div className="flex items-center gap-1 font-bold text-neutral-950" title="Batería 100%">
+                      <Battery size={13} className="stroke-[2.5]" />
+                      <span className="text-[10px]">100%</span>
+                    </div>
                   </div>
                 </div>
 
@@ -3109,13 +4222,30 @@ export default function App() {
                     <div className="bg-neutral-950 text-[#9CA3AF] p-2 rounded shadow border border-neutral-800 text-center font-bold whitespace-pre-line text-xs break-words overflow-hidden max-w-full">
                       {lcdMessage}
                     </div>
-                  ) : isMeasuring ? (
-                    <div className="text-center py-4 space-y-2">
-                      <div className="text-sm font-black animate-pulse tracking-widest">
-                        * MEDIANDO EDM *
+                  ) : measureAnim.active || isMeasuring ? (
+                    // Medición de distancia: "Dist" + modo EDM + PPm, la línea con el láser avanza a la derecha
+                    <div className="flex flex-col justify-between h-full font-mono px-1 py-0.5">
+                      <div className="flex justify-between items-start">
+                        <div className="leading-tight">
+                          <div className="text-[15px] font-black tracking-wide">Dist</div>
+                          <div className="text-[15px] font-black tracking-wide">{edmCfg.modo}</div>
+                        </div>
+                        <div className="flex items-center gap-3 pt-5 text-[14px] font-bold">
+                          <span>PPm</span>
+                          <span className="font-black">{stationAtm.ppm}</span>
+                        </div>
                       </div>
-                      <div className="text-[11px] font-mono text-neutral-800">
-                        DISTANCIA & COORDENADAS...
+                      <div className="relative h-6 mb-1">
+                        <div
+                          className="absolute left-0 top-1/2 h-[2px] bg-neutral-900"
+                          style={{ width: `${Math.max(4, (measureAnim.active ? measureAnim.progress : 0.6) * 92)}%` }}
+                        />
+                        <span
+                          className="absolute top-1/2 -translate-y-1/2 text-[20px] font-black leading-none animate-pulse"
+                          style={{ left: `calc(${Math.max(4, (measureAnim.active ? measureAnim.progress : 0.6) * 92)}% - 4px)` }}
+                        >
+                          ✷
+                        </span>
                       </div>
                     </div>
                   ) : (
@@ -3168,33 +4298,36 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 2. ESTADO 'MED': PANTALLA DE MEDICIÓN CON PAGINACIÓN P1, P2, P3 */}
+                      {/* 2. ESTADO 'MED': PANTALLA DE MEDICIÓN (Pág 1: MED/GHV/AZ-0/COORD, Pág 2: MENU/COMP/ANG.H/EDM, Pág 3: MDR/DESPLZ/TOPO/REPL) */}
                       {screenState === 'MED' && (
                         <div className="flex flex-col justify-between h-full font-mono text-[13px] px-1 py-0.5">
-                          {/* Cabecera: MED (arriba), srapido (parpadeando momentáneamente) y PPm (centro superior derecho) */}
                           <div className="flex justify-between items-center border-b border-neutral-800/30 pb-0.5">
                             <span className="text-[13px] tracking-wider text-neutral-950 font-black">MED</span>
                             <div className="flex items-center gap-2">
-                              {isMeasuringFast && (
-                                <span className="animate-pulse text-[11px] font-black text-neutral-950 tracking-wider">
-                                  srapido
-                                </span>
-                              )}
                               <span className="text-[11px] font-bold text-neutral-800">PPm</span>
+                              <span className="text-[11px] font-black text-neutral-950">{stationAtm.ppm}</span>
+                              {medView === 'GHV' && <Lock size={11} className="stroke-[2.5] text-neutral-900" />}
                               <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded font-bold">
                                 P{medPage}
                               </span>
                             </div>
                           </div>
 
-                          {/* Contenido principal alineado a la izquierda con espaciado en blanco a la derecha */}
-                          <div className="space-y-2 py-1.5 text-left font-bold text-neutral-950">
-                            <div>HD</div>
-                            <div className="tracking-tight text-neutral-900">AZ Rango exced.</div>
-                            <div>HA-D</div>
-                          </div>
+                          {medView === 'GHV' ? (
+                            // Vista GHV: Distancia Geométrica (GD), Horizontal (HD) y Vertical (VD)
+                            <div className="space-y-1.5 py-1 text-left font-bold text-neutral-950">
+                              <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>HD</span><span className="font-black">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>VD</span><span className="font-black">{lastMeas ? `${lastMeas.VD.toFixed(3)}m` : ''}</span></div>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 py-1 text-left font-bold text-neutral-950">
+                              <div className="flex justify-between"><span>HD</span><span className="font-black">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
+                              <div className="tracking-tight text-neutral-900">AZ Rango exced.</div>
+                              <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
+                            </div>
+                          )}
 
-                          {/* Pie informativo sutil */}
                           <div className="text-[9.5px] text-neutral-700 flex justify-between font-mono pt-0.5 border-t border-neutral-800/20">
                             <span>Pág {medPage}/3 (FUNC)</span>
                             <span>ESC = ROOT</span>
@@ -3202,96 +4335,64 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'COMPEN': PANTALLA AZ-0 SIMULADOR DEL MUNDO FÍSICO (ComPen) */}
+                      {/* ESTADO 'COMPEN': COMPENSADOR ComPen con sliders de nivelación (X = tornillos A+B, Y = tornillo C) */}
                       {screenState === 'COMPEN' && (() => {
                         const xDisplay = Math.abs(compenX) > 210 ? '* * * *' : formatTiltDMS(compenX);
                         const yDisplay = Math.abs(compenY) > 210 ? '* * * *' : formatTiltDMS(compenY);
 
                         return (
                           <div className="flex flex-col justify-between h-full font-mono text-xs select-none">
-                            {/* Cabecera superior izquierda: ComPen */}
                             <div className="flex justify-between items-center border-b border-neutral-800/30 pb-0.5 px-0.5">
                               <span className="font-black text-sm text-neutral-950 tracking-wider">ComPen</span>
                               <span className="text-[10px] text-neutral-800 font-bold">Nivel Electrónico</span>
                             </div>
 
-                            {/* Cuerpo principal en 2 columnas: Datos textuales a la izquierda, Gráfico interactivo a la derecha */}
-                            <div className="flex items-center justify-between gap-2 px-1 flex-1 py-1">
-                              {/* Columna Izquierda: Datos textuales */}
-                              <div className="flex flex-col justify-center space-y-3 pl-1 text-[13px] font-bold text-neutral-950 leading-tight">
-                                <div className="flex items-center gap-3">
-                                  <span className="font-black text-neutral-900 w-3">X</span>
+                            <div className="flex items-center justify-between gap-1 px-1 flex-1 min-h-0">
+                              {/* Lecturas X / Y */}
+                              <div className="flex flex-col justify-center space-y-3 pl-1 text-[14px] font-bold text-neutral-950 leading-tight">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-neutral-900">X:</span>
                                   <span className="font-mono tracking-wider">{xDisplay}</span>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="font-black text-neutral-900 w-3">Y</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-neutral-900">Y:</span>
                                   <span className="font-mono tracking-wider">{yDisplay}</span>
                                 </div>
                               </div>
 
-                              {/* Columna Derecha: Gráfico con dos círculos concéntricos cruzados por ejes X e Y, y burbuja negra arrastrable */}
-                              <div className="flex flex-col items-center justify-center pr-2">
-                                <div className="relative p-1">
-                                  <svg
-                                    ref={compenSvgRef}
-                                    viewBox="0 0 100 100"
-                                    className="w-24 h-24 touch-none cursor-grab active:cursor-grabbing select-none"
-                                    onPointerDown={handlePointerDown}
-                                    onPointerMove={handlePointerMove}
-                                    onPointerUp={handlePointerUp}
-                                    onPointerCancel={handlePointerUp}
-                                  >
-                                    {/* Fondo del sensor */}
-                                    <circle cx="50" cy="50" r="44" fill="#000000" fillOpacity="0.04" />
-
-                                    {/* Eje X (horizontal) */}
-                                    <line x1="8" y1="50" x2="92" y2="50" stroke="#171717" strokeWidth="1" strokeDasharray="3 3" />
-                                    {/* Eje Y (vertical) */}
-                                    <line x1="50" y1="8" x2="50" y2="92" stroke="#171717" strokeWidth="1" strokeDasharray="3 3" />
-
-                                    {/* Círculo concéntrico exterior */}
-                                    <circle
-                                      cx="50"
-                                      cy="50"
-                                      r="38"
-                                      fill="none"
-                                      stroke="#171717"
-                                      strokeWidth="1.8"
-                                    />
-
-                                    {/* Círculo concéntrico interior */}
-                                    <circle
-                                      cx="50"
-                                      cy="50"
-                                      r="18"
-                                      fill="none"
-                                      stroke="#171717"
-                                      strokeWidth="1.2"
-                                    />
-
-                                    {/* Punto central de calibración */}
-                                    <circle cx="50" cy="50" r="1.5" fill="#171717" />
-
-                                    {/* Punto negro (burbuja) arrastrable con el ratón */}
-                                    <circle
-                                      cx={bubblePos.x}
-                                      cy={bubblePos.y}
-                                      r="6"
-                                      fill="#0a0a0a"
-                                      className="drop-shadow-sm transition-transform duration-75"
-                                    />
+                              {/* Diana + sliders monocromáticos */}
+                              <div className="flex items-start gap-1.5 pr-1">
+                                <div className="flex flex-col items-center gap-1">
+                                  <svg viewBox="0 0 100 100" className="w-[84px] h-[84px]">
+                                    <line x1="2" y1="50" x2="98" y2="50" stroke="#171717" strokeWidth="1.2" />
+                                    <line x1="50" y1="2" x2="50" y2="98" stroke="#171717" strokeWidth="1.2" />
+                                    <circle cx="50" cy="50" r="42" fill="none" stroke="#171717" strokeWidth="3" />
+                                    <circle cx="50" cy="50" r="28" fill="none" stroke="#171717" strokeWidth="1.4" />
+                                    <circle cx="50" cy="50" r="15" fill="none" stroke="#171717" strokeWidth="1.4" />
+                                    <circle cx={bubblePos.x} cy={bubblePos.y} r="6" fill="#0a0a0a" />
                                   </svg>
+                                  <LcdSlider
+                                    orientation="horizontal"
+                                    value={compenX}
+                                    min={-COMPEN_LIMIT}
+                                    max={COMPEN_LIMIT}
+                                    onChange={setCompenX}
+                                    title="Eje X: tornillos A y B (se mueven juntos)"
+                                  />
+                                  <span className="text-[8px] font-black leading-none">A+B</span>
                                 </div>
-                                <span className="text-[9px] text-neutral-700 font-sans font-medium">
-                                  Arrastra la burbuja
-                                </span>
+                                <div className="flex flex-col items-center gap-1 pt-1">
+                                  <LcdSlider
+                                    orientation="vertical"
+                                    value={compenY}
+                                    min={-COMPEN_LIMIT}
+                                    max={COMPEN_LIMIT}
+                                    onChange={setCompenY}
+                                    title="Eje Y: tornillo C"
+                                  />
+                                  <span className="text-[8px] font-black leading-none">C</span>
+                                </div>
                               </div>
-                            </div>
-
-                            {/* Pie informativo */}
-                            <div className="text-[9.5px] text-neutral-700 flex justify-between font-mono pt-0.5 border-t border-neutral-800/20 px-0.5">
-                              <span>F1=[OK] Guardar</span>
-                              <span>[ESC] Volver</span>
                             </div>
                           </div>
                         );
@@ -3913,19 +5014,7 @@ export default function App() {
                                 key={item.id}
                                 onClick={() => {
                                   setReplMenuSelection(item.id);
-                                  if (item.id === 1) {
-                                    setScreenState('OCC_ORIEN');
-                                    setActiveField(0);
-                                    setOccPage(1);
-                                  } else if (item.id === 2) {
-                                    setScreenState('REPL_DATA');
-                                    setReplDisplayMode('COORD');
-                                  } else if (item.id === 3) {
-                                    setScreenState('OBS');
-                                    setActiveField(0);
-                                  } else if (item.id === 4) {
-                                    handleShiftPress();
-                                  }
+                                  handleKeypadPress(String(item.id));
                                 }}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
                                   isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
@@ -3942,7 +5031,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'REPL_DATA': DATOS DE REPLANT. */}
+                      {/* ESTADO 'REPL_DATA': DATOS DE REPLANT. (COORD: punto cargado con CARG / DISP: DistH y Ang H editables) */}
                       {screenState === 'REPL_DATA' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
@@ -3953,43 +5042,73 @@ export default function App() {
                           <div className="space-y-1 bg-black/5 p-2 rounded">
                             {replDisplayMode === 'COORD' ? (
                               <>
-                                <div className="font-bold text-neutral-900 text-xs border-b border-neutral-800/10 pb-0.5">
-                                  P Coord
+                                <div className="font-bold text-neutral-900 text-xs border-b border-neutral-800/10 pb-0.5 flex justify-between">
+                                  <span>P Coord</span>
+                                  <span>{replPoint ? `PTO ${replPoint.PTO}` : 'F1=[CARG]'}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="font-bold">YP:</span>
+                                  <span className="font-mono font-bold">{replPoint ? replPoint.N.toFixed(3) : ''}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-xs">
                                   <span className="font-bold">XP:</span>
-                                  <span className="font-mono font-bold">9095533.595</span>
+                                  <span className="font-mono font-bold">{replPoint ? replPoint.E.toFixed(3) : ''}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-xs">
                                   <span className="font-bold">ZP:</span>
-                                  <span className="font-mono font-bold">4008.540</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="font-bold">HD</span>
-                                  <span className="font-mono font-bold">0.000m</span>
+                                  <span className="font-mono font-bold">{replPoint ? replPoint.Z.toFixed(3) : ''}</span>
                                 </div>
                               </>
                             ) : (
                               <>
-                                <div className="flex justify-between items-center text-xs border-b border-neutral-800/10 pb-0.5">
-                                  <span className="font-bold">DistG</span>
-                                  <span className="font-mono font-bold">0.000m</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs py-0.5">
-                                  <span className="font-bold">Ang H:</span>
-                                  <span className="font-mono font-bold">113° 45' 58"</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="font-bold">HD</span>
-                                  <span className="font-mono font-bold">0.000m</span>
-                                </div>
+                                {[
+                                  { label: 'DistH', value: activeField === 0 && inputBuffer !== '' ? `${inputBuffer}_` : `${replDisp.distH.toFixed(3)}m` },
+                                  { label: 'Ang H', value: activeField === 1 && inputBuffer !== '' ? `${inputBuffer}_` : formatDMS(replDisp.angH) }
+                                ].map((row, i) => (
+                                  <div
+                                    key={row.label}
+                                    onClick={() => { commitReplDispField(); setActiveField(i); }}
+                                    className={`flex justify-between items-center text-xs px-1 rounded cursor-pointer ${
+                                      activeField === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
+                                    }`}
+                                  >
+                                    <span className="font-bold">{row.label}:</span>
+                                    <span className="font-mono font-bold">{row.value}</span>
+                                  </div>
+                                ))}
                               </>
                             )}
                           </div>
 
                           <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            F2=[DISP] Alternar • F4=[OK] Ir a ComPen
+                            {replDisplayMode === 'DISP'
+                              ? 'Escriba DistH (m) o Ang H (ddd.mmss) • F4=[OK] ComPen'
+                              : 'F1=[CARG] Punto • F2=[DISP] • F4=[OK] ComPen'}
                           </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'REPL_OBS': OBSERVACIÓN DE REPLANTEO (GD / AZ / HA-D) */}
+                      {screenState === 'REPL_OBS' && (
+                        <div className="space-y-1 font-mono text-[13px] px-1 pt-1 font-bold">
+                          {medView === 'GHV' ? (
+                            <>
+                              <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>HD</span><span className="font-black">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>VD</span><span className="font-black">{lastMeas ? `${lastMeas.VD.toFixed(3)}m` : ''}</span></div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                              <div>AZ  Rango exced.</div>
+                              <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
+                            </>
+                          )}
+                          {replPoint && (
+                            <div className="text-[9px] text-neutral-700 text-center pt-1 font-sans">
+                              Replanteo PTO {replPoint.PTO} • DistH {replDisp.distH.toFixed(3)}m • Ang H {formatDMS(replDisp.angH)}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -4012,17 +5131,7 @@ export default function App() {
                                 key={item.id}
                                 onClick={() => {
                                   setTopoMenuSelection(item.id);
-                                  if (item.id === 1) {
-                                    setScreenState('OBS');
-                                    setActiveField(0);
-                                  } else if (item.id === 2) {
-                                    setScreenState('TOPO_NOTA');
-                                  } else if (item.id === 3) {
-                                    setScreenState('TOPO_VER');
-                                    setTopoVerPage(1);
-                                  } else if (item.id === 4) {
-                                    setLcdMessage('BORRAR TOPO:\nSIN REGISTROS');
-                                  }
+                                  handleKeypadPress(String(item.id));
                                 }}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
                                   isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
@@ -4060,232 +5169,281 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'TOPO_VER': VER DATOS TOPO */}
-                      {screenState === 'TOPO_VER' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                            <span>DATOS TOPO</span>
-                            <span className="text-[10px] font-bold">[{topoVerPage === 1 ? 'P-1' : 'P-2'}]</span>
-                          </div>
-                          <div className="space-y-0.5 bg-black/5 p-1.5 rounded">
-                            {topoVerPage === 1 ? (
-                              <>
-                                <div className="flex justify-between items-center text-xs py-0.5">
-                                  <span className="font-bold">PTO</span>
-                                  <span className="font-mono font-bold">165</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs py-0.5">
-                                  <span className="font-bold">Ref.</span>
-                                  <span className="font-mono font-bold">165</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs py-0.5">
-                                  <span className="font-bold">Crd</span>
-                                  <span className="font-mono font-bold">3</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs py-0.5">
-                                  <span className="font-bold">Crd</span>
-                                  <span className="font-mono font-bold">4</span>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="flex justify-between items-center text-[11px] py-0.5">
-                                  <span className="font-bold">Y :</span>
-                                  <span className="font-mono">9095533.595 m</span>
-                                </div>
-                                <div className="flex justify-between items-center text-[11px] py-0.5">
-                                  <span className="font-bold">X :</span>
-                                  <span className="font-mono">4008.540 m</span>
-                                </div>
-                                <div className="flex justify-between items-center text-[11px] py-0.5">
-                                  <span className="font-bold">Z :</span>
-                                  <span className="font-mono">102.350 m</span>
-                                </div>
-                                <div className="flex justify-between items-center text-[11px] py-0.5">
-                                  <span className="font-bold">Cd:</span>
-                                  <span className="font-mono font-bold">LEVC</span>
-                                </div>
-                              </>
-                            )}
-                          </div>
+                      {/* ESTADO 'TOPO_PTTRN': Dist*Coord — patrón de observación */}
+                      {screenState === 'TOPO_PTTRN' && (
+                        <div className="space-y-0.5 font-mono text-[13px] px-1 pt-0.5">
+                          <div className="font-black">PTTRN:{topoModels[0] || 'CLEV'}</div>
+                          {[
+                            { label: 'Num. SETs', value: String(topoPttrn.sets) },
+                            { label: 'Num. Obs', value: String(topoPttrn.obs) },
+                            { label: 'ObsdesP1/2', value: topoPttrn.obsP12 },
+                            { label: 'PreenterPt', value: topoPttrn.preenter }
+                          ].map((row, i) => (
+                            <div
+                              key={row.label}
+                              onClick={() => setTopoPttrn(p => ({ ...p, field: i }))}
+                              className="flex items-center gap-1 font-bold cursor-pointer"
+                            >
+                              <span className="w-28">{row.label}</span>
+                              <span>:</span>
+                              <span className={`px-1 ${topoPttrn.field === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* ESTADO 'TOPO_MODEL': Selec. Modelo Obs */}
+                      {screenState === 'TOPO_MODEL' && (
+                        <div className="space-y-0.5 font-mono text-[13px] px-1 pt-0.5">
+                          <div className="font-black">Selec. Modelo Obs</div>
+                          {topoModels.map((m, i) => (
+                            <div
+                              key={i}
+                              onClick={() => setTopoModelIdx(i)}
+                              className={`flex gap-1 font-bold px-1 rounded cursor-pointer ${topoModelIdx === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                            >
+                              <span>{String(i + 1).padStart(2, '0')}:</span>
+                              <span>{m}</span>
+                            </div>
+                          ))}
                           <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            F1=[P-1/2] • F2=[1RO] • F3=[ULTIM] • F4=[BUSC]
+                            ◄ ► Cambiar modelo • F2=[REG] / F4=[OK]
                           </div>
                         </div>
                       )}
 
-                      {/* ESTADO 'COORD_MENU': MENÚ COORD (1. Occ.Orien, 2. Observación) */}
+                      {/* ESTADOS 'CODE_LIST' / 'CODE_SEARCH': LISTA Y BÚSQUEDA DE CÓDIGOS Cd */}
+                      {(screenState === 'CODE_LIST' || screenState === 'CODE_SEARCH') && (() => {
+                        const list = screenState === 'CODE_LIST' ? codeList : filteredCodes;
+                        const VISIBLE = screenState === 'CODE_LIST' ? 5 : 4;
+                        const startIdx = Math.max(0, Math.min(codeIdx - 2, list.length - VISIBLE));
+                        return (
+                          <div className="font-mono text-[13px] h-full flex flex-col">
+                            {screenState === 'CODE_SEARCH' && (
+                              <div className="font-bold px-1.5 border-b border-neutral-800/30 pb-0.5">Cd: {codeSearchBuffer}_</div>
+                            )}
+                            <div className="flex-1 pt-0.5">
+                              {list.slice(startIdx, startIdx + VISIBLE).map((c, li) => {
+                                const idx = startIdx + li;
+                                return (
+                                  <div
+                                    key={c + idx}
+                                    onClick={() => setCodeIdx(idx)}
+                                    onDoubleClick={() => handleEnterPress()}
+                                    className={`px-1.5 py-[1px] rounded cursor-pointer font-bold ${codeIdx === idx ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                                  >
+                                    {c}
+                                  </div>
+                                );
+                              })}
+                              {list.length === 0 && <div className="px-1.5 text-neutral-700">Sin coincidencias</div>}
+                            </div>
+                            <div className="text-[9px] text-neutral-700 flex justify-between font-sans border-t border-neutral-800/20 pt-0.5">
+                              <span>▲▼ • [ENT] Elegir Cd</span>
+                              <span>[{list.length ? codeIdx + 1 : 0}/{list.length}]</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ESTADO 'CODE_ADD': AGREGAR CÓDIGO (Sob.escri?) */}
+                      {screenState === 'CODE_ADD' && (
+                        <div className="font-mono text-[13px] px-1 pt-0.5 space-y-0.5 font-bold">
+                          <div>Cd</div>
+                          <div className="bg-neutral-900 text-[#9CA3AF] px-1.5 rounded font-black">:{codeSearchBuffer}</div>
+                          <div>Operador</div>
+                          <div>:{stationAtm.operador}</div>
+                          <div className="text-center pt-1 font-black">Sob.escri?</div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'COORD_MENU': MENÚ COORD (1. Occ.Orien., 2. Observación, 3. EDM) */}
                       {screenState === 'COORD_MENU' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
                             --- COORDENADAS ---
                           </div>
-                          <div
-                            onClick={() => { setMenuSelection(1); setScreenState('OCC_ORIEN'); setActiveField(0); }}
-                            className={`px-2 py-1 rounded cursor-pointer flex items-center justify-between ${
-                              menuSelection === 1 ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                            }`}
-                          >
-                            <span>1. Occ.Orien.</span>
-                            {menuSelection === 1 && <span>[ENT]</span>}
-                          </div>
-                          <div
-                            onClick={() => { setMenuSelection(2); setScreenState('OBS'); setActiveField(0); }}
-                            className={`px-2 py-1 rounded cursor-pointer flex items-center justify-between ${
-                              menuSelection === 2 ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                            }`}
-                          >
-                            <span>2. Observación</span>
-                            {menuSelection === 2 && <span>[ENT]</span>}
-                          </div>
+                          {[
+                            { id: 1, label: '1. Occ.Orien.' },
+                            { id: 2, label: '2. Observación' },
+                            { id: 3, label: '3. EDM' }
+                          ].map(item => (
+                            <div
+                              key={item.id}
+                              onClick={() => { setMenuSelection(item.id); handleKeypadPress(String(item.id)); }}
+                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
+                                menuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                              }`}
+                            >
+                              <span>{item.label}</span>
+                              {menuSelection === item.id && <span>[ENT]</span>}
+                            </div>
+                          ))}
                           <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
-                            Pulse 1 o 2 y luego [ENT]
+                            Pulse 1, 2 o 3 / ▲ ▼ y [ENT]
                           </div>
                         </div>
                       )}
 
-                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO (Y0, X0, Z0, PTO 1, HI) */}
+                      {/* ESTADO 'OCC_ORIEN': ESTACIONAMIENTO, 14 campos en 4 pantallas como el equipo:
+                          Y0 X0 Z0 PTO HI | Cd Operador | Fech Tiem Clima Viento | Temp Pres PPm */}
                       {screenState === 'OCC_ORIEN' && (() => {
-                        const stationItems = [
-                          {
-                            label: 'Y0',
-                            fieldIdx: 0,
-                            display: activeField === 0
-                              ? `${inputBuffer !== '' ? inputBuffer : (station.N === 1000 ? '1000' : station.N.toFixed(3))}_`
-                              : `${station.N.toFixed(3)} m`
-                          },
-                          {
-                            label: 'X0',
-                            fieldIdx: 1,
-                            display: activeField === 1
-                              ? `${inputBuffer !== '' ? inputBuffer : (station.E === 1000 ? '1000' : station.E.toFixed(3))}_`
-                              : `${station.E.toFixed(3)} m`
-                          },
-                          {
-                            label: 'Z0',
-                            fieldIdx: 2,
-                            display: activeField === 2
-                              ? `${inputBuffer !== '' ? inputBuffer : (station.Z === 100 ? '100' : station.Z.toFixed(3))}_`
-                              : `${station.Z.toFixed(3)} m`
-                          },
-                          {
-                            label: 'PTO',
-                            fieldIdx: 3,
-                            display: activeField === 3
-                              ? `${inputBuffer !== '' ? inputBuffer : (station.PTO || 'PTO 1')}_`
-                              : (station.PTO || 'PTO 1')
-                          },
-                          {
-                            label: 'HI',
-                            fieldIdx: 4,
-                            display: activeField === 4
-                              ? `${inputBuffer !== '' ? inputBuffer : station.HI.toFixed(3)}_`
-                              : `${station.HI.toFixed(3)} m`
-                          }
+                        const now = new Date();
+                        const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+                        const fech = `${meses[now.getMonth()]}/${String(now.getDate()).padStart(2, '0')}/${now.getFullYear()}`;
+                        const tiem = now.toLocaleTimeString('es-PE', { hour12: false });
+                        const editing = (f: number, normal: string) =>
+                          activeField === f ? `${inputBuffer}_` : normal;
+                        const fields: { label: string; value: string }[] = [
+                          { label: 'Y0', value: editing(0, `${station.N.toFixed(3)} m`) },
+                          { label: 'X0', value: editing(1, `${station.E.toFixed(3)} m`) },
+                          { label: 'Z0', value: editing(2, `${station.Z.toFixed(3)} m`) },
+                          { label: 'PTO', value: editing(3, station.PTO || 'PTO 1') },
+                          { label: 'HI', value: editing(4, `${station.HI.toFixed(3)} m`) },
+                          { label: 'Cd', value: editing(5, stationAtm.CD) },
+                          { label: 'Operador', value: editing(6, stationAtm.operador) },
+                          { label: 'Fech', value: fech },
+                          { label: 'Tiem', value: tiem },
+                          { label: 'Clima', value: activeField === 9 ? `◄ ${stationAtm.clima} ►` : stationAtm.clima },
+                          { label: 'Viento', value: activeField === 10 ? `◄ ${stationAtm.viento} ►` : stationAtm.viento },
+                          { label: 'Temp.', value: editing(11, `${stationAtm.temp}°C`) },
+                          { label: 'Pres.', value: editing(12, `${stationAtm.pres}hPa`) },
+                          { label: 'PPm', value: editing(13, stationAtm.ppm) }
                         ];
+                        const page = OCC_PAGES[occPageOf(activeField)];
+                        const stacked = page.includes(5); // Cd y Operador: etiqueta arriba y valor debajo (":TN")
 
                         return (
                           <div className="space-y-0.5 font-mono text-xs">
                             <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
                               <span>ESTACIONAMIENTO</span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] font-bold">*[1/12]</span>
-                              </div>
+                              <span className="text-[10px] font-bold">▲▼ [{activeField + 1}/14]</span>
                             </div>
                             <div className="space-y-0.5 py-0.5">
-                              {stationItems.map(item => {
-                                const isCur = activeField === item.fieldIdx;
+                              {page.map(f => {
+                                const item = fields[f];
+                                const isCur = activeField === f;
+                                if (stacked) {
+                                  return (
+                                    <div key={item.label} onClick={() => { commitCurrentField(); setActiveField(f); }} className="cursor-pointer">
+                                      <div className="px-1.5 font-bold">{item.label}</div>
+                                      <div className={`px-1.5 py-0.5 rounded min-w-0 truncate ${isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>
+                                        :{item.value}
+                                      </div>
+                                    </div>
+                                  );
+                                }
                                 return (
                                   <div
                                     key={item.label}
-                                    onClick={() => {
-                                      commitCurrentField();
-                                      setActiveField(item.fieldIdx);
-                                    }}
+                                    onClick={() => { commitCurrentField(); setActiveField(f); }}
                                     className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
                                       isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                     }`}
                                   >
                                     <span className="shrink-0">{item.label}:</span>
-                                    <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
-                                      {item.display}
-                                    </span>
+                                    <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">{item.value}</span>
                                   </div>
                                 );
                               })}
                             </div>
                             <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                              F1=[CARG] • F2=[ACLE.R] • F3=[E.RXYZ] • F4=[TRISEC]
+                              {activeField === 9 || activeField === 10
+                                ? '◄ ► Cambiar opción • ▲ ▼ Campo'
+                                : activeField === 7 || activeField === 8
+                                ? 'Fecha y hora automáticas • ▲ ▼ Campo'
+                                : '▲ ▼ Campo • [FUNC] Siguiente pantalla'}
                             </div>
                           </div>
                         );
                       })()}
 
-                      {/* ESTADO 'OCC_LOAD_LIST': LISTA DE PUNTOS CARGADOS (PTO 1, PTO 2) */}
+                      {/* ESTADO 'OCC_LOAD_LIST': LISTA DE REGISTROS DE MEMORIA (Occ / PTO / Ref. / Crd), 5 filas con desplazamiento */}
                       {screenState === 'OCC_LOAD_LIST' && (() => {
-                        const startIdx = Math.max(0, Math.min(selectedOccLoadIdx - 1, occLoadPoints.length - 4));
-                        const visiblePoints = occLoadPoints.slice(startIdx, startIdx + 4);
+                        const VISIBLE = 5;
+                        const n = pointRecords.length;
+                        const startIdx = Math.max(0, Math.min(selectedOccLoadIdx - 2, n - VISIBLE));
+                        const visible = pointRecords.slice(startIdx, startIdx + VISIBLE);
 
                         return (
-                          <div className="space-y-0.5 font-mono text-xs">
-                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                              <span>LISTA PUNTOS</span>
-                              <span className="text-[10px] font-bold">[{selectedOccLoadIdx + 1}/{occLoadPoints.length}]</span>
-                            </div>
-                            <div className="space-y-0.5 py-0.5">
-                              {visiblePoints.map((pt, localIdx) => {
+                          <div className="font-mono text-[13px] h-full flex flex-col">
+                            <div className="flex-1 space-y-0 pt-0.5">
+                              {visible.map((rec, localIdx) => {
                                 const realIdx = startIdx + localIdx;
                                 const isSel = selectedOccLoadIdx === realIdx;
                                 return (
                                   <div
-                                    key={pt.PTO + realIdx}
-                                    onClick={() => {
-                                      setSelectedOccLoadIdx(realIdx);
-                                      cargarPuntoSeleccionado();
-                                    }}
-                                    className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
+                                    key={rec.tag + rec.PTO + realIdx}
+                                    onClick={() => setSelectedOccLoadIdx(realIdx)}
+                                    onDoubleClick={() => handleEnterPress()}
+                                    className={`flex items-center gap-3 px-1.5 py-[1px] rounded cursor-pointer min-w-0 ${
                                       isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                     }`}
                                   >
-                                    <span className="font-bold truncate max-w-[50%]">{pt.PTO}</span>
-                                    <span className="text-[10px] truncate max-w-[50%] font-mono text-neutral-800">
-                                      Y:{pt.N.toFixed(1)} X:{pt.E.toFixed(1)}
-                                    </span>
+                                    <span className="w-9 shrink-0 font-bold">{rec.tag}</span>
+                                    <span className="truncate font-bold">{rec.PTO}</span>
                                   </div>
                                 );
                               })}
                             </div>
-                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                              ▲ ▼ Seleccionar • [ENT] Cargar • F3=[BUSC]
+                            <div className="text-[9px] text-neutral-700 flex justify-between font-sans border-t border-neutral-800/20 pt-0.5">
+                              <span>{pickCtx === 'VER' ? 'VER DATOS' : 'CARGAR'} • ▲▼ • [ENT]</span>
+                              <span>[{n ? selectedOccLoadIdx + 1 : 0}/{n}]</span>
                             </div>
                           </div>
                         );
                       })()}
 
-                      {/* ESTADO 'OCC_LOAD_SEARCH': BUSCAR PUNTO (Criteria:Completo, Direct.: _) */}
+                      {/* ESTADO 'OCC_LOAD_SEARCH': BUSCAR PUNTO (PTO, Criteria, Direct.) */}
                       {screenState === 'OCC_LOAD_SEARCH' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                            <span>BUSCAR PTO</span>
-                            <span className="text-[10px] font-bold">[CRIT]</span>
-                          </div>
-                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
-                            <div className="text-xs">
-                              <span className="text-neutral-700">Criteria:</span>
-                              <span className="font-bold ml-1 text-neutral-900">Completo</span>
+                        <div className="space-y-1 font-mono text-[13px] px-0.5 pt-1">
+                          {[
+                            { label: 'PTO', value: `${occSearchBuffer}${searchField === 0 ? '_' : ''}` },
+                            { label: 'Criteria', value: searchField === 1 ? `◄ ${searchCriteria} ►` : searchCriteria },
+                            { label: 'Direct.', value: searchField === 2 ? `◄ ${searchDirection} ►` : searchDirection }
+                          ].map((row, i) => (
+                            <div
+                              key={row.label}
+                              onClick={() => setSearchField(i)}
+                              className={`flex items-center gap-2 px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
+                                searchField === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
+                              }`}
+                            >
+                              <span className="shrink-0 font-bold w-20">{row.label}</span>
+                              <span className="font-bold">:</span>
+                              <span className="truncate font-bold">{row.value}</span>
                             </div>
-                            <div className="flex items-center text-xs">
-                              <span className="shrink-0 text-neutral-700">Direct.:</span>
-                              <span className="font-bold font-mono ml-1 truncate max-w-[70%] bg-black/10 px-1 py-0.5 rounded">
-                                {occSearchBuffer}_
-                              </span>
-                            </div>
-                          </div>
+                          ))}
                           <div className="text-[9px] text-neutral-700 text-center pt-1 font-sans">
-                            Escriba PTO • F4=[OK] Buscar • [ESC] Volver
+                            Escriba el PTO • ◄ ► Criterio / Dirección • F4=[OK]
                           </div>
                         </div>
                       )}
+
+                      {/* ESTADO 'VER_DETAIL': DETALLE DEL REGISTRO (TOPO > Ver) */}
+                      {screenState === 'VER_DETAIL' && (() => {
+                        const rec = pointRecords[verDetailIdx];
+                        if (!rec) return null;
+                        return (
+                          <div className="space-y-0.5 font-mono text-[13px] px-1 pt-0.5">
+                            {[
+                              { label: rec.tag, value: rec.PTO },
+                              { label: 'Y', value: `${rec.N.toFixed(3)} m` },
+                              { label: 'X', value: `${rec.E.toFixed(3)} m` },
+                              { label: 'Z', value: `${rec.Z.toFixed(3)} m` },
+                              { label: 'Cd', value: rec.CD || '' }
+                            ].map(row => (
+                              <div key={row.label} className="flex justify-between font-bold">
+                                <span>{row.label}</span>
+                                <span className="font-black">{row.value}</span>
+                              </div>
+                            ))}
+                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                              ▲ ▼ Registro anterior/siguiente • [ESC] Lista
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* ESTADO 'OCC_ACLER': ORIENTACIÓN ACLE.R */}
                       {screenState === 'OCC_ACLER' && (
@@ -4319,31 +5477,23 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'OCC_TRISEC': MENÚ TRISECCIÓN */}
+                      {/* ESTADO 'OCC_TRISEC': MENÚ TRISECCIÓN (1. YXZ, 2. Cota, 3. Ajustes) */}
                       {screenState === 'OCC_TRISEC' && (
                         <div className="space-y-1 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center">
                             <span>--- TRISECCIÓN ---</span>
-                            <span className="text-[10px] font-bold">[{trisecSelection}/4]</span>
+                            <span className="text-[10px] font-bold">[{trisecSelection}/3]</span>
                           </div>
                           {[
-                            { id: 1, label: '1. A' },
-                            { id: 2, label: '2. YXZ' },
-                            { id: 3, label: '3. Cota' },
-                            { id: 4, label: '4. Ajustes' }
+                            { id: 1, label: '1. YXZ' },
+                            { id: 2, label: '2. Cota' },
+                            { id: 3, label: '3. Ajustes' }
                           ].map(item => {
                             const isSel = trisecSelection === item.id;
                             return (
                               <div
                                 key={item.id}
-                                onClick={() => {
-                                  setTrisecSelection(item.id);
-                                  if (item.id === 2) {
-                                    setScreenState('COMPEN');
-                                  } else {
-                                    setLcdMessage('TRISEC SELECCIONADA');
-                                  }
-                                }}
+                                onClick={() => handleKeypadPress(String(item.id))}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
                                   isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
@@ -4359,45 +5509,61 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'ERXYZ': ORIENTAR PUNTO ATRÁS (Yref, Xref, Zref, PTO) */}
-                      {screenState === 'ERXYZ' && (
-                        <div className="space-y-0.5 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>ORIENTAR (P. ATRÁS)</span>
-                            <span className="text-[10px] font-black">F1=[CARG] • F4=[OK]</span>
+                      {/* ESTADO 'TRISEC_PT': Trisecn. 1ro Pto (después de nivelar en ComPen) */}
+                      {screenState === 'TRISEC_PT' && (
+                        <div className="space-y-1 font-mono text-[13px] px-1 pt-0.5 font-bold">
+                          <div className="font-black">Trisecn.   1ro Pto</div>
+                          <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                          <div>AZ  Rango exced.</div>
+                          <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'TRISEC_AJ': Ajustes de Trisección */}
+                      {screenState === 'TRISEC_AJ' && (
+                        <div className="space-y-1 font-mono text-[13px] px-1 pt-0.5">
+                          <div className="font-black">Ajustes</div>
+                          {[
+                            { label: 'Obs cara1/2', value: trisecAj.obsCara },
+                            { label: 'Z', value: trisecAj.z }
+                          ].map((row, i) => (
+                            <div key={row.label} className="flex items-center gap-2 font-bold">
+                              <span className="w-28">{row.label}</span>
+                              <span>:</span>
+                              <span className={`px-1 ${trisecAj.field === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>{row.value}</span>
+                            </div>
+                          ))}
+                          <div className="text-[9px] text-neutral-700 text-center pt-2 font-sans">
+                            ▲ ▼ Campo • ◄ ► Cambiar • [ENT]/[ESC] Volver
                           </div>
+                        </div>
+                      )}
+
+                      {/* ESTADO 'ERXYZ': Estc. Ref. (Yref, Xref, Zref) — F1=[CARG], F4=[OK] */}
+                      {screenState === 'ERXYZ' && (
+                        <div className="space-y-0.5 font-mono text-[13px]">
+                          <div className="font-black border-b border-neutral-800/30 pb-0.5 px-0.5">Estc. Ref.</div>
                           {[
                             { label: 'Yref', val: backsight.N },
                             { label: 'Xref', val: backsight.E },
-                            { label: 'Zref', val: backsight.Z },
-                            { label: 'PTO', val: backsight.PTO || 'BS-1' }
+                            { label: 'Zref', val: backsight.Z }
                           ].map((item, idx) => {
                             const isCur = activeField === idx;
                             return (
                               <div
                                 key={item.label}
-                                onClick={() => {
-                                  commitCurrentField();
-                                  setActiveField(idx);
-                                }}
-                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
+                                onClick={() => { commitCurrentField(); setActiveField(idx); }}
+                                className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 font-bold ${
                                   isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
                                 }`}
                               >
-                                <span className="shrink-0">{item.label}:</span>
-                                <span className="truncate max-w-[65%] overflow-hidden text-right font-mono">
-                                  {isCur
-                                    ? `${inputBuffer}_`
-                                    : idx === 3
-                                    ? String(item.val)
-                                    : `${Number(item.val).toFixed(3)} m`}
+                                <span className="shrink-0">{item.label}</span>
+                                <span className="truncate max-w-[70%] overflow-hidden text-right font-mono">
+                                  {isCur ? `${inputBuffer}_` : Number(item.val).toFixed(3)}
                                 </span>
                               </div>
                             );
                           })}
-                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            [F1] CARG Base • [F4] OK (Comprobar Orientación)
-                          </div>
                         </div>
                       )}
 
@@ -4463,39 +5629,49 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'EDM_MENU': MENÚ CONFIGURACIÓN EDM */}
-                      {screenState === 'EDM_MENU' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                            <span>--- EDM ---</span>
+                      {/* ESTADO 'EDM_MENU': CONFIGURACIÓN EDM (2 páginas, ◄ ► cambia, números para valores) */}
+                      {screenState === 'EDM_MENU' && (() => {
+                        const val = (f: number, normal: string) => (edmField === f && edmBuffer !== '' ? `${edmBuffer}_` : normal);
+                        const rows = [
+                          { label: 'Modo', value: edmCfg.modo },
+                          { label: 'Reflector', value: currentReflectorName },
+                          { label: 'CP', value: val(2, String(edmCfg.cp)) },
+                          { label: 'Mant.Ilum.', value: edmCfg.mantIlum },
+                          { label: 'Luz guía', value: edmCfg.luzGuia },
+                          { label: 'Temp.', value: val(5, `${stationAtm.temp}°C`) },
+                          { label: 'Pres.', value: val(6, `${stationAtm.pres}hPa`) },
+                          { label: 'PPm', value: val(7, `${stationAtm.ppm}ppm`) }
+                        ];
+                        const page = edmField < 4 ? 0 : 1;
+                        return (
+                          <div className="space-y-0.5 font-mono text-[13px] px-0.5">
+                            <div className="font-black flex justify-between border-b border-neutral-800/30 pb-0.5">
+                              <span>EDM</span>
+                              <span className="text-[10px]">{page + 1}/2</span>
+                            </div>
+                            {rows.slice(page * 4, page * 4 + 4).map((row, i) => {
+                              const f = page * 4 + i;
+                              const isCur = edmField === f;
+                              return (
+                                <div
+                                  key={row.label}
+                                  onClick={() => { commitEdmField(); setEdmField(f); }}
+                                  className="flex items-center gap-1 font-bold cursor-pointer"
+                                >
+                                  <span className="w-24 shrink-0">{row.label}</span>
+                                  <span>:</span>
+                                  <span className={`px-1 truncate ${isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>
+                                    {row.value}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
+                              ▲ ▼ Campo • ◄ ► Cambiar • [ESC] Volver
+                            </div>
                           </div>
-                          <div className="space-y-1 bg-black/5 p-1.5 rounded">
-                            <div className="flex justify-between items-center text-xs">
-                              <span>Modo</span>
-                              <span>: <span className="bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 font-bold">Srapido</span></span>
-                            </div>
-                            <div
-                              onClick={cycleEdmReflector}
-                              className="flex justify-between items-center text-xs cursor-pointer hover:bg-black/10 px-0.5 rounded"
-                              title="Clic o [ENT] para alternar reflector"
-                            >
-                              <span>Reflector</span>
-                              <span>: <span className="font-bold underline decoration-dotted">{edmReflector}</span></span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs">
-                              <span>cp</span>
-                              <span className="font-mono">: 0</span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs">
-                              <span>Mant.Illum</span>
-                              <span className="font-mono">: Laser</span>
-                            </div>
-                          </div>
-                          <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
-                            [ENT] / Clic: Cambiar Reflector • [ESC]: Volver
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* ESTADO 'DESPLZ_MENU': MENÚ DESPLAZAMIENTO */}
                       {screenState === 'DESPLZ_MENU' && (
@@ -4700,7 +5876,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 1. ESTADO 'OBS': OBSERVACIÓN (Y, X, Z ARRIBA, HD EN MEDIO, PTO ABAJO, CD CON FLECHA ABAJO) */}
+                      {/* 1. ESTADO 'OBS': OBSERVACIÓN (Y, X, Z / HD = altura de prisma editable / PTO / Cd) */}
                       {screenState === 'OBS' && (() => {
                         const radV = envV * (Math.PI / 180);
                         let liveAz = azimutInicial + envHD;
@@ -4708,72 +5884,49 @@ export default function App() {
                         const liveAzRad = liveAz * (Math.PI / 180);
                         const liveDH = envSD * Math.sin(radV);
                         const liveDV = envSD * Math.cos(radV);
+                        const bufHR = parseFloat(inputBuffer);
+                        const hr = activeField === 2 && !isNaN(bufHR) ? bufHR : target.HR;
                         const liveY = station.N + (liveDH * Math.cos(liveAzRad));
                         const liveX = station.E + (liveDH * Math.sin(liveAzRad));
-                        const liveZ = station.Z + station.HI + liveDV - target.HR;
+                        const liveZ = station.Z + station.HI + liveDV - hr;
+                        const editRows = [
+                          { f: 2, label: 'HD', value: activeField === 2 ? `${inputBuffer}_` : `${target.HR.toFixed(3)}m` },
+                          { f: 0, label: 'PTO', value: activeField === 0 ? `${inputBuffer}_` : target.PTO },
+                          { f: 1, label: 'Cd', value: activeField === 1 ? `${inputBuffer}_` : target.CD }
+                        ];
+                        // Se muestran 2 de los 3 campos editables (como en el equipo, se desplaza con ▲ ▼)
+                        const visibleRows = activeField === 1 ? editRows.slice(1) : editRows.slice(0, 2);
 
                         return (
-                          <div className="space-y-1 font-mono text-xs px-0.5">
-                            {/* Barra de cabecera con indicación REC / flash */}
-                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                              <span className="flex items-center gap-1.5 font-black text-neutral-950">
-                                <span>OBSERVACIÓN</span>
-                                {obsShotFlash && (
-                                  <span className="bg-neutral-950 text-emerald-400 px-1 py-0.2 rounded text-[9px] font-black">
-                                    *REG*
-                                  </span>
-                                )}
-                              </span>
-                              <span className="text-[10px] font-bold text-neutral-800">
-                                HR: {target.HR.toFixed(3)}m
-                              </span>
-                            </div>
-
-                            {/* Y, X, Z (ARRIBA) */}
-                            <div className="space-y-0.5 bg-black/5 p-1 rounded border border-neutral-800/15">
-                              <div className="flex justify-between items-center text-[12px]">
-                                <span className="font-bold text-neutral-900">Y :</span>
-                                <span className="font-mono font-black">{liveY.toFixed(3)} m</span>
+                          <div className="space-y-0.5 font-mono text-[13px] px-0.5">
+                            {[
+                              { label: 'Y', value: obsMeasured || obsShotFlash ? `${liveY.toFixed(3)}m` : '' },
+                              { label: 'X', value: obsMeasured || obsShotFlash ? `${liveX.toFixed(3)}m` : '' },
+                              { label: 'Z', value: obsMeasured || obsShotFlash ? `${liveZ.toFixed(3)}m` : '' }
+                            ].map(row => (
+                              <div key={row.label} className="flex justify-between font-bold px-1">
+                                <span>{row.label}</span>
+                                <span className="font-black">{row.value}</span>
                               </div>
-                              <div className="flex justify-between items-center text-[12px]">
-                                <span className="font-bold text-neutral-900">X :</span>
-                                <span className="font-mono font-black">{liveX.toFixed(3)} m</span>
-                              </div>
-                              <div className="flex justify-between items-center text-[12px]">
-                                <span className="font-bold text-neutral-900">Z :</span>
-                                <span className="font-mono font-black">{liveZ.toFixed(3)} m</span>
-                              </div>
-                            </div>
-
-                            {/* HD (EN MEDIO) */}
-                            <div className="flex justify-between items-center bg-black/5 px-2 py-0.5 rounded text-[12px] border border-neutral-800/15">
-                              <span className="font-bold text-neutral-900">HD:</span>
-                              <span className="font-mono font-black">{formatDMS(envHD)}</span>
-                            </div>
-
-                            {/* PTO (ABAJO) / Cd (AL PULSAR FLECHA ABAJO) */}
-                            {activeField === 0 ? (
+                            ))}
+                            {visibleRows.map(row => (
                               <div
-                                onClick={() => setActiveField(0)}
-                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner min-w-0"
+                                key={row.label}
+                                onClick={() => { commitCurrentField(); setActiveField(row.f); }}
+                                className="flex items-center gap-2 font-bold px-1 cursor-pointer min-w-0"
                               >
-                                <span className="shrink-0">PTO:</span>
-                                <div className="flex items-center gap-2 min-w-0 max-w-[65%] justify-end">
-                                  <span className="font-mono font-black truncate max-w-full overflow-hidden">{inputBuffer}_</span>
-                                  <span className="text-[9px] text-neutral-400 font-normal shrink-0">▼ Cd</span>
-                                </div>
+                                <span className="w-9 shrink-0">{row.label}</span>
+                                <span
+                                  className={`flex-1 text-right px-1 rounded truncate ${
+                                    activeField === row.f ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
+                                  }`}
+                                >
+                                  {row.value}
+                                </span>
                               </div>
-                            ) : (
-                              <div
-                                onClick={() => setActiveField(1)}
-                                className="flex justify-between items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 rounded cursor-pointer font-bold text-xs shadow-inner min-w-0"
-                              >
-                                <span className="shrink-0">Cd :</span>
-                                <div className="flex items-center gap-2 min-w-0 max-w-[65%] justify-end">
-                                  <span className="font-mono font-black truncate max-w-full overflow-hidden">{inputBuffer}_</span>
-                                  <span className="text-[9px] text-neutral-400 font-normal shrink-0">▲ PTO</span>
-                                </div>
-                              </div>
+                            ))}
+                            {obsShotFlash && (
+                              <div className="text-center text-[10px] font-black">*** PUNTO REGISTRADO ***</div>
                             )}
                           </div>
                         );
@@ -4833,7 +5986,7 @@ export default function App() {
                   <button
                     onClick={handleShiftPress}
                     className="h-9 bg-sky-400 hover:bg-sky-300 active:bg-sky-500 text-neutral-950 font-black text-xs rounded-md shadow-md border-b-3 border-sky-600 active:border-b-0 active:translate-y-0.5 transition-all flex items-center justify-center gap-1 cursor-pointer select-none"
-                    title="SHIFT: Alternar modo prisma / alfanumérico"
+                    title="SHIFT: Cambiar modo de escritura (Números / Letras / Signos)"
                   >
                     <span className="text-[10px] leading-none">⇧</span>
                     <span className="text-[10px] font-black tracking-tight">SHIFT</span>
@@ -4851,8 +6004,10 @@ export default function App() {
                 {(isCurrentFieldAlpha || isAlphaKeyboardOpen) && (
                   <div className="bg-neutral-950 p-2 rounded-xl border border-neutral-800 space-y-1 animate-in fade-in">
                     <div className="flex justify-between items-center text-[10px] text-amber-400 font-bold px-1">
-                      <span>TEXTO ALFANUMÉRICO ACTIVO</span>
-                      <span className="text-slate-400 text-[9px]">Usa teclas blancas o atajos</span>
+                      <span>
+                        TEXTO • MODO {inputMode === 'NUM' ? 'NÚMEROS' : inputMode === 'ALF' ? 'LETRAS' : 'SIGNOS'}
+                      </span>
+                      <span className="text-slate-400 text-[9px]">SHIFT cambia el modo</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {['BM-', 'P-', 'E-', 'EST-', 'PTO-'].map(pref => (

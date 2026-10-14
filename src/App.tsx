@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import type { ReactNode } from 'react';
 import {
-  Battery,
   Lock,
   Sliders,
   Volume2,
@@ -134,13 +134,16 @@ type ScreenState =
   | 'VER_DETAIL'    // Detalle de un registro en TOPO > Ver
   | 'TOPO_PTTRN'    // Dist*Coord: Num. SETs / Num. Obs / ObsdesP1/2 / PreenterPt
   | 'TOPO_MODEL'    // Selec. Modelo Obs (PTTRN)
-  | 'REPL_OBS';     // Observación de replanteo (GD / AZ / HA-D)
+  | 'REPL_OBS'      // Observación de replanteo (GD / AZ / HA-D)
+  // --- Corrección de usuario (14-10-2026) ---
+  | 'GEN'           // Pantallas genéricas (menús, ajustes, avisos y confirmaciones: USB, DATO, Cod., CNFG, ANG.H, MDR...)
+  ;
 
 // Modo de entrada del teclado (cambia con SHIFT): Números, Letras o Signos
 type InputMode = 'NUM' | 'ALF' | 'SIM';
 
 // Contexto desde el que se abrió la lista de puntos (CARG / Ver)
-type PickContext = 'OCC' | 'BS' | 'REPL' | 'VER';
+type PickContext = 'OCC' | 'BS' | 'REPL' | 'VER' | 'ANGH';
 
 // Contexto desde el que se abrió el compensador ComPen
 type CompenContext = 'MED' | 'TRISEC' | 'OBS' | 'REPL';
@@ -160,7 +163,7 @@ const CLIMA_OPTIONS = ['Fino', 'Nublado', 'Lluvia ligera', 'Lluvia', 'Nieve'];
 const VIENTO_OPTIONS = ['Calma', 'Suave', 'Ligero', 'Fuerte', 'Muy fuerte'];
 
 // Códigos Cd por defecto (lista provisional hasta confirmar con la clienta)
-const DEFAULT_CODES = ['TN', 'LIN', 'DREN', 'TL', 'CA', 'PMT', 'COL', 'CASE'];
+const DEFAULT_CODES = ['TN', 'LIN', 'DREN', 'TL', 'CA', 'PMT', 'COL', 'CASE', '255', 'TAZA', 'CALLE', 'ACEQ', 'V', 'HITO'];
 
 // Configuración EDM (tabla entregada por la clienta)
 const EDM_MODOS = ['Fino R', 'Fino S', 'PROM.fina', 'Rápido R', 'Rápido S', 'Tracking'];
@@ -231,6 +234,16 @@ export const formatTiltDMS = (seconds: number): string => {
   return `${sign}${m}' ${String(s).padStart(2, '0')}"`;
 };
 
+// Formato de inclinación con grados (-0°13'04") para Const Instr
+export const formatTiltDMSLong = (seconds: number): string => {
+  const sign = seconds < 0 ? '-' : ' ';
+  const a = Math.abs(seconds);
+  const d = Math.floor(a / 3600);
+  const m = Math.floor((a % 3600) / 60);
+  const s = Math.round(a % 60);
+  return `${sign}${d}°${String(m).padStart(2, '0')}'${String(s).padStart(2, '0')}"`;
+};
+
 // Función de auto-incremento inteligente del PTO
 export const incrementPointId = (pto: string): string => {
   if (!pto) return '1';
@@ -265,21 +278,124 @@ interface OverrideHandlers {
   key: (key: string) => boolean;
   shift: () => void;
   func: () => boolean;
+  center: () => void;
 }
 
 // 10 Slots de Trabajos por defecto Topcon ES-105 (* no exportados a USB)
+// Trabajos con "*" = aún no enviados (no se pueden borrar: "Enviar 1ro"); sin "*" = ya enviados (se pueden borrar)
 const DEFAULT_JOB_SLOTS = [
   '*GRAMA',
   '*PROYECTO01',
-  '*PRUEBA',
+  'PRUEBA',
   '*PROYECTO1',
-  '*TOPOGRAFIA',
+  'TOPOGRAFIA',
   '*CANTERA',
-  '*OBRA_SUR',
+  'OBRA_SUR',
   '*PARQUE',
-  '*JOB09',
-  '*JOB10'
+  'JOB09',
+  'JOB10'
 ];
+
+// Cantidad de puntos por trabajo (inventada, como pidió la clienta). El trabajo activo muestra sus puntos reales.
+const DEFAULT_JOB_COUNTS = [0, 98, 14, 4, 37, 22, 9, 15, 0, 0];
+
+// Valores por defecto de todos los ajustes del equipo (CNFG, Config. Comunic., Bluetooth, Estrella...)
+const DEFAULT_CFG: Record<string, string> = {
+  // Config. Comunic.
+  'com.sinCable': 'No',
+  'com.vel': '9600bPs',
+  'com.bits': '8bit',
+  'com.par': 'Ningun',
+  'com.paro': '1bit',
+  'com.compFin': 'Si',
+  'com.ack': 'Yes',
+  'com.crlf': 'Si',
+  'com.ackMode': 'Estandar',
+  // Bluetooth
+  'bt.modo': 'Origen',
+  'bt.enl': '12345',
+  'bt.auth': 'Si',
+  'bt.clave': '*****',
+  'bt.compFin': 'Si',
+  // CNFG > Cond. Obs.
+  'obs.modoDist': 'DistG',
+  'obs.distH': 'Tierra',
+  'obs.compens': 'Si(H,V)',
+  'obs.corrCol': 'Si',
+  'obs.esfRef': 'K=0.142',
+  'obs.nivMar': 'Si',
+  'obs.obsV': 'Horiz.',
+  'obs.coord': 'X-Y-Z',
+  'obs.reso': '1',
+  'obs.diana': 'On',
+  'obs.despAng': 'Libre',
+  'obs.incr': '100',
+  'obs.vManual': 'No',
+  // CNFG > Config.Instr (Contraste y Niv Retic se comparten con la Estrella)
+  'instr.apagar': '30min',
+  'retic': '5',
+  'contraste': '11',
+  'instr.resumir': 'On',
+  'instr.edmAlc': 'Mant.',
+  'instr.luzGuia': '1',
+  // CNFG > Unidades
+  'units.temp': '°C',
+  'units.pres': 'hPa',
+  'units.ang': 'grado',
+  'units.dist': 'metro',
+  'units.pie': 'Pie EU',
+  // Estrella
+  'plomLaser': 'Off',
+  'nivLaser': '5',
+  'punteo': 'Off',
+  // ANG.H > Coord (referencia)
+  'angRef.X': '1000.000',
+  'angRef.Y': '1000.000',
+  'angRef.Z': '500.000'
+};
+
+// Opciones de cada ajuste
+const CFG_OPTIONS: Record<string, string[]> = {
+  'com.sinCable': ['No', 'Si'],
+  'com.vel': ['38400bPs', '19200bPs', '9600bPs', '4800bPs', '2400bPs', '1200bPs'],
+  'com.bits': ['8bit', '7bit'],
+  'com.par': ['Ningun', 'Par', 'Impar'],
+  'com.paro': ['1bit', '2bit'],
+  'com.compFin': ['Si', 'No'],
+  'com.ack': ['Yes', 'No'],
+  'com.crlf': ['Si', 'No'],
+  'com.ackMode': ['Estandar', 'Omitido'],
+  'bt.modo': ['Origen', 'Esclavo'],
+  'bt.auth': ['Si', 'No'],
+  'bt.compFin': ['Si', 'No'],
+  'obs.modoDist': ['DistG', 'DistV', 'DistH'],
+  'obs.distH': ['Tierra', 'Rejilla'],
+  'obs.compens': ['Si(H,V)', 'No', 'Si(V)'],
+  'obs.corrCol': ['Si', 'No'],
+  'obs.esfRef': ['K=0.142', 'No', 'K=0.20'],
+  'obs.nivMar': ['Si', 'No'],
+  'obs.obsV': ['Horiz.', 'Zenital', 'Horiz. 90°'],
+  'obs.coord': ['X-Y-Z', 'Y-X-Z'],
+  'obs.reso': ['1', '5'],
+  'obs.diana': ['On', 'Off'],
+  'obs.despAng': ['Libre', 'Mant.'],
+  'obs.vManual': ['No', 'Si'],
+  'instr.apagar': ['30min', '15min', '10min', '5min', 'No'],
+  'retic': ['5', '4', '3', '2', '1', '0'],
+  'contraste': ['11', '10', '9', '8', '7', '6', '5', '4', '3', '2', '1'],
+  'instr.resumir': ['On', 'Off'],
+  'instr.edmAlc': ['Mant.', 'Libre'],
+  'instr.luzGuia': ['1', '2'],
+  'units.temp': ['°C', '°F'],
+  'units.pres': ['mmHg', 'PulgHg', 'hPa'],
+  'units.ang': ['grado', 'gon', 'mil'],
+  'units.dist': ['metro', 'pie', 'pul'],
+  'units.pie': ['Pie EU', 'Pie INT'],
+  'plomLaser': ['Off', 'On'],
+  'punteo': ['Off', 'On']
+};
+
+const DEFAULT_BT_DEVICES = ['DEVICE1', '*12345', 'DEVICE3', 'DEVICE4'];
 
 // Slider monocromático estilo LCD (nivelación ComPen). Se arrastra con el ratón o el dedo.
 const LcdSlider = ({
@@ -485,7 +601,7 @@ export default function App() {
   const [isMeasuring, setIsMeasuring] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isBacklightOn, setIsBacklightOn] = useState<boolean>(true);
-  const [isOriented, setIsOriented] = useState<boolean>(true);
+  const [, setIsOriented] = useState<boolean>(true);
   const [isAlphaKeyboardOpen, setIsAlphaKeyboardOpen] = useState<boolean>(false);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState<boolean>(false);
 
@@ -524,7 +640,7 @@ export default function App() {
 
   // Pantalla MED: vista normal (HD / AZ / HA-D) o vista GHV (GD / HD / VD)
   const [medView, setMedView] = useState<'NORMAL' | 'GHV'>('NORMAL');
-  const [lastMeas, setLastMeas] = useState<{ SD: number; HD: number; VD: number; HA: number } | null>(null);
+  const [lastMeas, setLastMeas] = useState<{ SD: number; HD: number; VD: number; HA: number; V: number } | null>(null);
   // Animación de medición de distancia (línea + láser, F4 = PARA)
   const [measureAnim, setMeasureAnim] = useState<{ active: boolean; progress: number }>({ active: false, progress: 0 });
   const measureTimerRef = useRef<{ interval: number | null; done: (() => void) | null }>({ interval: null, done: null });
@@ -588,6 +704,38 @@ export default function App() {
 
   // Capa de correcciones: se asigna en cada render (sección 8)
   const overrideRef = useRef<OverrideHandlers | null>(null);
+
+  // =========================================================================
+  // ESTADOS AÑADIDOS (Corrección de usuario 14-10-2026)
+  // =========================================================================
+  // Ajustes del equipo (CNFG, Config. Comunic., Bluetooth, Estrella...)
+  const [cfg, setCfg] = useState<Record<string, string>>(DEFAULT_CFG);
+  const setCfgKey = useCallback((k: string, v: string) => setCfg(c => ({ ...c, [k]: v })), []);
+  // Pila de pantallas genéricas (menús / ajustes / avisos / confirmaciones)
+  const [genStack, setGenStack] = useState<{ id: string; idx: number; param?: string }[]>([]);
+  const [genReturn, setGenReturn] = useState<ScreenState>('ROOT');
+  const [genAlpha, setGenAlpha] = useState<boolean>(false);
+  const [sendCount, setSendCount] = useState<number>(0);
+  // Cantidad de puntos por trabajo (inventada) y trabajos marcados "Fuer" para Salida Comunic.
+  const [jobCounts, setJobCounts] = useState<number[]>(DEFAULT_JOB_COUNTS);
+  const [salidaSel, setSalidaSel] = useState<number[]>([]);
+  const [jobScale, setJobScale] = useState<string>('1.00000000');
+  // Dispositivos Bluetooth registrados
+  const [btDevices, setBtDevices] = useState<string[]>(DEFAULT_BT_DEVICES);
+  // Estrella: campo seleccionado (9 opciones)
+  const [starField, setStarField] = useState<number>(0);
+  // Pantalla de regreso de Estacionamiento y de los códigos Cd
+  const [occReturn, setOccReturn] = useState<ScreenState>('COORD_MENU');
+  const [codeTarget, setCodeTarget] = useState<'OCC' | 'OBS'>('OCC');
+  // Trisección: lectura de ángulos (ANGUL)
+  const [trisecAng, setTrisecAng] = useState<{ V: number; HA: number } | null>(null);
+  // MDR: punto inicial y resultado de la medición de distancia remota
+  const [mdr, setMdr] = useState<{
+    pt: number;
+    p1: { x: number; y: number; z: number; SD: number; V: number; HA: number } | null;
+    p2?: { x: number; y: number; z: number; SD: number; V: number; HA: number } | null;
+    res: { dGD: number; dHD: number; dVD: number } | null;
+  }>({ pt: 1, p1: null, res: null });
 
   const GRAPHIC_MENU_ITEMS = useMemo(() => [
     { id: 'coord', name: 'Coord' },
@@ -732,7 +880,8 @@ export default function App() {
       SD: envSD,
       HD: envSD * Math.sin(radV),
       VD: envSD * Math.cos(radV),
-      HA: envHD
+      HA: envHD,
+      V: envV
     };
     setLastMeas(meas);
     return meas;
@@ -800,8 +949,10 @@ export default function App() {
     } else if (screenState === 'OBS') {
       if (activeField === 0) setInputBuffer(target.PTO);
       if (activeField === 1) setInputBuffer(target.CD);
-      if (activeField === 2) setInputBuffer(String(target.HR));
-    } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
+      if (activeField === 2) setInputBuffer(target.HR.toFixed(3));
+    } else if (screenState === 'JOB_DETAILS') {
+      setInputBuffer(activeField === 0 ? jobName.replace(/^\*/, '') : jobScale);
+    } else if (screenState === 'JOB') {
       setInputBuffer(jobName.replace(/^\*/, ''));
     } else if (screenState === 'KNOWN_INPUT') {
       if (activeField === 0) setInputBuffer(knownCoordsInput.Y);
@@ -815,19 +966,21 @@ export default function App() {
       if (activeField === 3) setInputBuffer(String(newKnownPoint.Z));
       if (activeField === 4) setInputBuffer(newKnownPoint.CD ?? '');
     }
-  }, [screenState, activeField, station, stationAtm, backsight, target, jobName, knownCoordsInput, newKnownPoint]);
+  }, [screenState, activeField, station, stationAtm, backsight, target, jobName, jobScale, knownCoordsInput, newKnownPoint]);
 
   // Verificar si el campo actual admite texto alfanumérico
   const isCurrentFieldAlpha = useMemo(() => {
-    if (screenState === 'JOB' || screenState === 'JOB_DETAILS') return true;
+    if (screenState === 'JOB') return true;
+    if (screenState === 'JOB_DETAILS') return activeField === 0; // Nom. TRA alfanumérico; ESCAL numérico
     if (screenState === 'OCC_LOAD_SEARCH') return searchField === 0; // Solo el campo PTO admite texto
     if (screenState === 'OBS') return activeField === 0 || activeField === 1; // PTO y Cd alfanuméricos; HD numérico
     if (screenState === 'CODE_SEARCH') return true;
+    if (screenState === 'GEN') return genAlpha;
     if (screenState === 'KNOWN_NEW' && (activeField === 0 || activeField === 4)) return true; // PTO o CD de base
     if (screenState === 'KNOWN_INPUT' && activeField === 3) return true; // PTO de Datos Conocidos
     if (screenState === 'OCC_ORIEN' && (activeField === 3 || activeField === 5 || activeField === 6)) return true; // PTO, Cd, Operador
     return false;
-  }, [screenState, activeField, searchField]);
+  }, [screenState, activeField, searchField, genAlpha]);
 
   // Guardar campo editado
   const commitCurrentField = useCallback(() => {
@@ -853,7 +1006,7 @@ export default function App() {
       if (activeField === 0) setTarget(t => ({ ...t, PTO: inputBuffer.trim() || '1' }));
       if (activeField === 1) setTarget(t => ({ ...t, CD: inputBuffer.trim() || 'PTO' }));
       if (activeField === 2 && !isNaN(val)) setTarget(t => ({ ...t, HR: val }));
-    } else if (screenState === 'JOB' || screenState === 'JOB_DETAILS') {
+    } else if (screenState === 'JOB' || (screenState === 'JOB_DETAILS' && activeField === 0)) {
       if (inputBuffer.trim()) {
         const clean = inputBuffer.trim();
         const oldClean = jobName.replace(/^\*/, '');
@@ -2858,7 +3011,7 @@ export default function App() {
   };
 
   const pickerReturnScreen = (ctx: PickContext): ScreenState =>
-    ctx === 'OCC' ? 'OCC_ORIEN' : ctx === 'BS' ? 'ERXYZ' : ctx === 'REPL' ? 'REPL_DATA' : 'TOPO_MENU';
+    ctx === 'OCC' ? 'OCC_ORIEN' : ctx === 'BS' ? 'ERXYZ' : ctx === 'REPL' ? 'REPL_DATA' : ctx === 'ANGH' ? 'GEN' : 'TOPO_MENU';
 
   const openEdm = (from: ScreenState) => {
     setPrevScreenBeforeEdm(from);
@@ -2893,6 +3046,11 @@ export default function App() {
       setReplDisp({ distH: parseFloat(dist.toFixed(3)), angH: az });
       setLcdMessage(`${rec.tag} ${rec.PTO}\nCARGADO EN REPLANTEO`);
       setTimeout(() => { setScreenState('REPL_DATA'); setReplDisplayMode('COORD'); setActiveField(0); }, 900);
+    } else if (pickCtx === 'ANGH') {
+      // ANG.H > Coord: el punto cargado pasa a ser la referencia (Xref, Yref, Zref)
+      setCfg(c => ({ ...c, 'angRef.X': rec.E.toFixed(3), 'angRef.Y': rec.N.toFixed(3), 'angRef.Z': rec.Z.toFixed(3) }));
+      setLcdMessage(`${rec.tag} ${rec.PTO}\nCARGADO`);
+      setTimeout(() => setScreenState('GEN'), 900);
     } else {
       setVerDetailIdx(idx);
       setScreenState('VER_DETAIL');
@@ -2970,8 +3128,26 @@ export default function App() {
   // Etiquetas F1-F4 de las pantallas corregidas (null = usar las originales)
   const overrideFKeyLabels = (): [string, string, string, string] | null => {
     if (measureAnim.active) return ['', '', '', 'PARA'];
-    if (isStarMenuOpen) return starMode === 'SETTINGS' ? ['', '', '', 'ENT'] : ['', '', '', ''];
+    if (isStarMenuOpen) return starMode === 'SETTINGS' ? starFKeyLabels() : ['', '', '', ''];
     switch (screenState) {
+      case 'GEN':
+        return genFKeyLabels();
+      case 'TILT':
+      case 'COMPEN':
+        return ['OK', 'PLO-EN.', '', ''];
+      case 'USB_MENU':
+      case 'DATO_MENU':
+      case 'JOB_MENU':
+      case 'KNOWN_MENU':
+      case 'JOB_LIST':
+      case 'JOB_DELETE_LIST':
+        return ['', '', '', ''];
+      case 'JOB_SELECT':
+        return ['LIST', '', '', ''];
+      case 'KNOWN_DEL':
+        return ['↑↓…P', '1RO', 'ULTIM', 'BORR'];
+      case 'REPL_OBS':
+        return ['REG', 'DISP', '← →', 'MED'];
       case 'MED':
         if (medPage === 1) return ['MED', 'GHV', 'AZ-0', 'COORD'];
         if (medPage === 2) return ['MENU', 'COMP', 'ANG.H', 'EDM'];
@@ -3004,13 +3180,12 @@ export default function App() {
       case 'CODE_ADD':
         return ['', '', 'NO', 'SI'];
       case 'TRISEC_PT':
-        return ['', '', '', 'MED'];
+        return ['', '', 'ANGUL', 'MED'];
       case 'OBS':
+        if (activeField === 1) return ['AGR', 'LIST', 'BUSC', ''];
         return [obsMeasured ? 'REG' : '', 'DESPLZ', 'AUTO', 'MED'];
       case 'REPL_DATA':
         return ['CARG', 'DISP', '', 'OK'];
-      case 'REPL_OBS':
-        return ['GHV', 'DISP', '◄►', 'MED'];
       case 'TOPO_PTTRN':
         return ['PTTRN', '', '', 'OK'];
       case 'TOPO_MODEL':
@@ -3121,17 +3296,18 @@ export default function App() {
         else if (f === 3) setCodeIdx(Math.max(0, filteredCodes.length - 1));
         return true;
       case 'CODE_ADD': {
-        if (f === 3) { setScreenState('OCC_ORIEN'); setActiveField(5); }
+        if (f === 3) codeReturnScreen();
         else if (f === 4) {
           const cd = codeSearchBuffer.trim().toUpperCase();
           if (cd) {
             const existe = codeList.includes(cd);
             if (!existe) setCodeList(prev => [...prev, cd]);
-            setStationAtm(a => ({ ...a, CD: cd }));
             playLaserBeep();
             setLcdMessage(existe ? `Cd ${cd}\nSOBRESCRITO` : `Cd ${cd}\nAGREGADO`);
+            setTimeout(() => codeApply(cd), 900);
+          } else {
+            codeReturnScreen();
           }
-          setTimeout(() => { setScreenState('OCC_ORIEN'); setActiveField(5); }, 900);
         }
         return true;
       }
@@ -3202,9 +3378,9 @@ export default function App() {
       case 'MED':
         return true;
       case 'COMPEN':
-        if (compenCtx === 'TRISEC') setScreenState('TRISEC_PT');
+        if (compenCtx === 'TRISEC') { setTrisecAng(null); setScreenState('TRISEC_PT'); }
         else if (compenCtx === 'OBS') goObservacion(compenReturn);
-        else if (compenCtx === 'REPL') setScreenState('REPL_OBS');
+        else if (compenCtx === 'REPL') { setLastMeas(null); setScreenState('REPL_OBS'); }
         else setScreenState(compenReturn);
         return true;
       case 'COORD_MENU':
@@ -3259,18 +3435,14 @@ export default function App() {
         return true;
       case 'CODE_LIST': {
         const cd = codeList[codeIdx];
-        if (cd) { setStationAtm(a => ({ ...a, CD: cd })); setInputBuffer(cd); }
-        setScreenState('OCC_ORIEN');
-        setActiveField(5);
+        if (cd) codeApply(cd);
+        else codeReturnScreen();
         return true;
       }
       case 'CODE_SEARCH': {
         const cd = filteredCodes[codeIdx];
         if (!cd) { setLcdMessage('no hay datos'); return true; }
-        setStationAtm(a => ({ ...a, CD: cd }));
-        setInputBuffer(cd);
-        setScreenState('OCC_ORIEN');
-        setActiveField(5);
+        codeApply(cd);
         return true;
       }
       case 'CODE_ADD':
@@ -3317,8 +3489,8 @@ export default function App() {
     switch (screenState) {
       case 'COMPEN':
         // En Trisección y Replanteo, ESC tras nivelar continúa a la pantalla de medición (según el equipo)
-        if (compenCtx === 'TRISEC') setScreenState('TRISEC_PT');
-        else if (compenCtx === 'REPL') setScreenState('REPL_OBS');
+        if (compenCtx === 'TRISEC') { setTrisecAng(null); setScreenState('TRISEC_PT'); }
+        else if (compenCtx === 'REPL') { setLastMeas(null); setScreenState('REPL_OBS'); }
         else setScreenState(compenReturn);
         return true;
       case 'TRISEC_PT':
@@ -3588,14 +3760,1265 @@ export default function App() {
     return false;
   };
 
+  // =========================================================================
+  // 9. CORRECCIONES DE USUARIO (14-10-2026): PANTALLAS GENÉRICAS DEL EQUIPO
+  // -------------------------------------------------------------------------
+  // Menús, ajustes, avisos y confirmaciones con el formato del LCD real.
+  // Se apilan en genStack (ESC vuelve a la anterior); al vaciarse se regresa a genReturn.
+  // =========================================================================
+  type GenField = {
+    key: string;
+    label: string;
+    kind: 'opt' | 'num' | 'text' | 'link' | 'info';
+    value?: string;
+    options?: string[];
+    onSelect?: () => void;
+  };
+  type GenView =
+    | { kind: 'menu'; title?: string; subtitle?: string; items: { label: string; onSelect: () => void }[]; icon?: ReactNode }
+    | { kind: 'form'; title?: string; rowsPerPage: number; fields: GenField[]; fkeys?: [string, string, string, string]; onF?: (f: 1 | 2 | 3 | 4) => void }
+    | { kind: 'list'; title?: string; rows: { left: string; right?: string }[]; fkeys: [string, string, string, string]; onF: (f: 1 | 2 | 3 | 4, idx: number) => void; onEnter?: (idx: number) => void }
+    | { kind: 'msg'; lines: string[]; timed?: boolean; onKey?: () => void }
+    | { kind: 'confirm'; lines: string[]; onYes: () => void; onNo?: () => void }
+    | { kind: 'input'; lines: string[]; alpha: boolean; fkeys?: [string, string, string, string]; onEnter: (val: string) => void; onF?: (f: 1 | 2 | 3 | 4) => void }
+    | { kind: 'custom'; render: () => ReactNode; fkeys: [string, string, string, string]; onF: (f: 1 | 2 | 3 | 4) => void; onEnter?: () => void };
+
+  const genTop = genStack[genStack.length - 1];
+
+  const genOpen = (id: string, param?: string, initialBuffer?: string) => {
+    // Campos de texto que en el equipo arrancan en modo letras
+    if (id === 'codTeclear' || id === 'btEdit' || id === 'clave') setInputMode('ALF');
+    if (screenState !== 'GEN') {
+      setGenReturn(screenState);
+      setGenStack([{ id, idx: 0, param }]);
+      setScreenState('GEN');
+    } else {
+      setGenStack(st => [...st, { id, idx: 0, param }]);
+    }
+    setInputBuffer(initialBuffer ?? '');
+  };
+  const genBack = () => {
+    setInputBuffer('');
+    if (genStack.length <= 1) {
+      setGenStack([]);
+      setScreenState(genReturn);
+    } else {
+      setGenStack(st => st.slice(0, -1));
+    }
+  };
+  const genExit = (to?: ScreenState) => {
+    setGenStack([]);
+    setInputBuffer('');
+    setScreenState(to ?? genReturn);
+  };
+  const genSetIdx = (idx: number) => setGenStack(st => st.map((f, i) => (i === st.length - 1 ? { ...f, idx } : f)));
+  // Aviso temporal (p.ej. "Borrando...") que se cierra solo y ejecuta "then"
+  const genTimed = (lines: string, ms: number, then: () => void) => {
+    genOpen('timed', lines);
+    setTimeout(then, ms);
+  };
+  // Vuelve N pantallas atrás dentro de la pila genérica
+  const genPop = (n: number) => {
+    setInputBuffer('');
+    setGenStack(st => {
+      const next = st.slice(0, Math.max(0, st.length - n));
+      if (next.length === 0) setScreenState(genReturn);
+      return next;
+    });
+  };
+
+  const optField = (key: string, label: string, options?: string[]): GenField => ({
+    key, label, kind: 'opt', value: cfg[key], options: options ?? CFG_OPTIONS[key]
+  });
+  const numField = (key: string, label: string): GenField => ({ key, label, kind: 'num', value: cfg[key] });
+
+  const jobClean = (j: string) => j.replace(/^\*/, '');
+  const jobCountAt = (i: number) => (jobClean(jobsList[i] || '') === jobClean(jobName) ? points.length : jobCounts[i] ?? 0);
+
+  // Envío simulado con conteo de puntos ("Enviando N")
+  const sendTimerRef = useRef<number | null>(null);
+  const startSending = (title: string, format: string, total: number, onDone: () => void) => {
+    setSendCount(0);
+    genOpen('sending', `${title}|${format}`);
+    if (sendTimerRef.current !== null) window.clearInterval(sendTimerRef.current);
+    let n = 0;
+    const step = Math.max(1, Math.ceil(total / 25));
+    sendTimerRef.current = window.setInterval(() => {
+      n = Math.min(total, n + step);
+      setSendCount(n);
+      playBeep(1900, 0.02);
+      if (n >= total) {
+        if (sendTimerRef.current !== null) window.clearInterval(sendTimerRef.current);
+        sendTimerRef.current = null;
+        playLaserBeep();
+        setTimeout(onDone, 700);
+      }
+    }, 90);
+  };
+
+  // Formulario Config. Comunic. (compartido: TRABJ, Datos Conocidos y CNFG)
+  const comCfgView = (): GenView => {
+    if (cfg['com.sinCable'] === 'Si') {
+      return {
+        kind: 'form',
+        rowsPerPage: 6,
+        fields: [
+          optField('com.sinCable', 'Sin Cable'),
+          { key: 'l1', label: 'Ajust.Bluetooth', kind: 'link', onSelect: () => genOpen('btCfg') },
+          { key: 'l2', label: 'ListaDispConect.', kind: 'link', onSelect: () => genOpen('btList') },
+          { key: 'l3', label: 'Info.SobreDispos', kind: 'link', onSelect: () => genOpen('btInfo') }
+        ]
+      };
+    }
+    return {
+      kind: 'form',
+      rowsPerPage: 6,
+      fields: [
+        optField('com.sinCable', 'Sin Cable'),
+        optField('com.vel', 'Velocidad'),
+        optField('com.bits', 'Bits/Dato'),
+        optField('com.par', 'Paridad'),
+        optField('com.paro', 'Bit Paro'),
+        optField('com.compFin', 'Comp.fin.'),
+        optField('com.ack', 'ACK/NAK'),
+        optField('com.crlf', 'CR.LF'),
+        optField('com.ackMode', 'ACK mode')
+      ]
+    };
+  };
+
+  // Datos Conocidos > Claro / Cod. > Borrar lista, etc. usan confirmaciones genéricas
+  const buildGenView = (id: string, param?: string): GenView | null => {
+    switch (id) {
+      // ---------- Avisos ----------
+      case 'timed':
+        return { kind: 'msg', lines: (param || '').split('|'), timed: true };
+      case 'msg':
+        return { kind: 'msg', lines: (param || '').split('|') };
+      case 'sending': {
+        const [title, format] = (param || '|').split('|');
+        return { kind: 'msg', timed: true, lines: [title, '', `Format  ${format}`, `Enviando   ${sendCount}`] };
+      }
+
+      // ---------- USB (Tipo T / Tipo S): 6 opciones, cada una pide insertar el USB ----------
+      case 'usbType': {
+        const tipo = param || 'T';
+        const opciones = ['Guardar Datos', 'Cargar Pto.Conoc', 'Guardar codigo', 'Cargar codigo', 'Estado de fich.', 'Formateo rapido'];
+        return {
+          kind: 'menu',
+          title: `Tipo ${tipo}`,
+          items: opciones.map((label, i) => ({
+            label,
+            onSelect: () => genOpen('usbInsert', String(i))
+          }))
+        };
+      }
+      case 'usbInsert':
+        return {
+          kind: 'msg',
+          lines: ['', 'Inserte USB', '', 'Pulsar Tecla'],
+          onKey: () => {
+            // Guardar Datos continúa a la selección de trabajo y descarga el CSV (pendiente de confirmar con la clienta)
+            if (param === '0') {
+              setUsbTypeMode(genStack[0]?.param === 'S' ? 'S' : 'T');
+              setSelectedJobIdx(0);
+              genExit('USB_SAVE_JOB');
+            } else {
+              genBack();
+            }
+          }
+        };
+
+      // ---------- DATO > TRABJ > Borrar ----------
+      case 'jobDelConfirm': {
+        const i = Number(param);
+        const name = jobClean(jobsList[i] || '');
+        return {
+          kind: 'confirm',
+          lines: [name, '  borrado', '    Confir ?'],
+          onYes: () => {
+            genTimed('|Borrando...', 900, () => {
+              setJobCounts(c => c.map((v, k) => (k === i ? 0 : v)));
+              if (jobClean(jobName) === name) setPoints([]);
+              genExit('JOB_DELETE_LIST');
+            });
+          }
+        };
+      }
+
+      // ---------- DATO > TRABJ > Salida Comunic. ----------
+      case 'salida':
+        return {
+          kind: 'menu',
+          title: 'Salida Comunic.',
+          items: [
+            { label: 'tiPo T', onSelect: () => { setSalidaSel([]); genOpen('salidaJobs', 'T'); } },
+            { label: 'tiPo S', onSelect: () => { setSalidaSel([]); genOpen('salidaJobs', 'S'); } }
+          ]
+        };
+      case 'salidaJobs': {
+        const tipo = param || 'T';
+        return {
+          kind: 'list',
+          rows: jobsList.map((j, i) => ({ left: j, right: salidaSel.includes(i) ? 'Fuer' : String(jobCountAt(i)) })),
+          fkeys: ['', '', '', 'OK'],
+          onEnter: i => setSalidaSel(sel => (sel.includes(i) ? sel.filter(x => x !== i) : [...sel, i])),
+          onF: (f, i) => {
+            if (f !== 4) return;
+            if (salidaSel.length === 0) setSalidaSel([i]);
+            genOpen(tipo === 'T' ? 'salidaFmtT' : 'salidaFmtS');
+          }
+        };
+      }
+      case 'salidaFmtT':
+      case 'salidaFmtS': {
+        const formatos = id === 'salidaFmtT' ? ['GTS(Obs)', 'GTS(Coord)', 'SSS(Obs)', 'SSS(Coord)'] : ['SDR33', 'SDR2x'];
+        return {
+          kind: 'menu',
+          title: 'Salida Comunic.',
+          items: formatos.map(fmt => ({
+            label: fmt,
+            onSelect: () => {
+              if (fmt.includes('Coord')) iniciarSalida(fmt);
+              else genOpen('salidaObs', fmt);
+            }
+          }))
+        };
+      }
+      case 'salidaObs':
+        return {
+          kind: 'menu',
+          title: 'Salida Comunic.',
+          items: [
+            { label: 'Datos obs', onSelect: () => iniciarSalida(param || '') },
+            { label: 'Datos Reducid', onSelect: () => iniciarSalida(param || '') }
+          ]
+        };
+
+      // ---------- Config. Comunic. y Bluetooth ----------
+      case 'comCfg':
+        return comCfgView();
+      case 'btCfg': {
+        const fields: GenField[] = [optField('bt.modo', 'Modo')];
+        if (cfg['bt.modo'] === 'Origen') fields.push(numField('bt.enl', 'Enl.'));
+        fields.push(optField('bt.auth', 'Autenticacion'));
+        if (cfg['bt.auth'] === 'Si') fields.push({ key: 'bt.clave', label: 'Clave', kind: 'info', value: cfg['bt.clave'] });
+        fields.push(optField('bt.compFin', 'Comp.fin.'));
+        fields.push(optField('com.ack', 'ACK/NAK'), optField('com.crlf', 'CR,LF'), optField('com.ackMode', 'ACK mode'));
+        return { kind: 'form', rowsPerPage: 5, fields };
+      }
+      case 'btList':
+        return {
+          kind: 'list',
+          title: 'ListaDisPConect.',
+          rows: btDevices.map(d => ({ left: d })),
+          fkeys: ['EDIT', 'BORR', '', ''],
+          onF: (f, i) => {
+            if (f === 1) genOpen('btEdit', String(i), btDevices[i]?.replace(/^\*/, '') || '');
+            else if (f === 2 && btDevices[i]) genOpen('btDel', String(i));
+          }
+        };
+      case 'btEdit':
+        return {
+          kind: 'input',
+          lines: ['RegistroDisPositivo', 'Nomb.:'],
+          alpha: true,
+          fkeys: ['', '', '', 'REG'],
+          onEnter: v => guardarDispositivo(Number(param), v),
+          onF: f => { if (f === 4) guardarDispositivo(Number(param), inputBuffer); }
+        };
+      case 'btDel': {
+        const i = Number(param);
+        return {
+          kind: 'confirm',
+          lines: [btDevices[i] || '', '  borrado', '    Confir ?'],
+          onYes: () => {
+            setBtDevices(d => d.filter((_, k) => k !== i));
+            genBack();
+          }
+        };
+      }
+      case 'btInfo':
+        return { kind: 'msg', lines: ['Bluetooth ID:', '  B018459.B016540', 'Firmware: 4.0.0', 'BD_ADDR:', '      00078056E9F6'] };
+
+      // ---------- DATO > Datos Conocidos ----------
+      case 'entComms':
+        return {
+          kind: 'menu',
+          title: 'Entrada Comms',
+          items: [
+            { label: 'tiPo T', onSelect: () => genOpen('entCommsT') },
+            { label: 'tiPo S', onSelect: () => conectarEntrada() }
+          ]
+        };
+      case 'entCommsT':
+        return {
+          kind: 'menu',
+          title: 'Entrada Comms',
+          items: [
+            { label: 'GTS(Coord)', onSelect: () => conectarEntrada() },
+            { label: 'SSS(Coord)', onSelect: () => conectarEntrada() }
+          ]
+        };
+      case 'knownClaro':
+        return {
+          kind: 'confirm',
+          lines: ['', 'Claro', '  Confir ?'],
+          onYes: () => genTimed('|Borrando...', 900, () => { setKnownPoints([]); genExit('KNOWN_MENU'); })
+        };
+
+      // ---------- DATO > Cod. ----------
+      case 'cod':
+        return {
+          kind: 'menu',
+          title: 'Cod.',
+          items: [
+            { label: 'Teclear Codigo', onSelect: () => genOpen('codTeclear') },
+            { label: 'Entr. Comms', onSelect: () => genOpen('msg', 'Entr. Comms||Format   Codigo||Recibiendo   0') },
+            { label: 'Salida Comunic.', onSelect: () => startSending('Salida Comunic.', 'Codigo', codeList.length, () => genPop(1)) },
+            { label: 'Borrar', onSelect: () => genOpen('codBorrar') },
+            { label: 'Vista Codigo', onSelect: () => genOpen('codVista') },
+            { label: 'Borrar lista', onSelect: () => genOpen('codBorrarLista') }
+          ]
+        };
+      case 'codTeclear':
+        return {
+          kind: 'input',
+          lines: ['Cod.'],
+          alpha: true,
+          onEnter: v => {
+            const cd = v.trim().toUpperCase();
+            if (!cd) return;
+            if (codeList.includes(cd)) genOpen('codSobre', cd);
+            else {
+              setCodeList(l => [...l, cd]);
+              genTimed(`Cod.|:${cd}||   Registrado`, 1000, () => { genPop(1); setInputBuffer(''); });
+            }
+          }
+        };
+      case 'codSobre':
+        return {
+          kind: 'confirm',
+          lines: ['Cod.', `:${param}`, '', '   Sob.escri?'],
+          onYes: () => genTimed(`Cod.|:${param}||   Registrado`, 1000, () => genPop(2)),
+          onNo: () => genBack()
+        };
+      case 'codBorrar':
+        return {
+          kind: 'list',
+          rows: codeList.map(c => ({ left: c })),
+          fkeys: ['↑↓…P', '1RO', 'ULTIM', 'BORR'],
+          onF: (f, i) => {
+            if (f === 1) genSetIdx(i + 5 < codeList.length ? i + 5 : 0);
+            else if (f === 2) genSetIdx(0);
+            else if (f === 3) genSetIdx(Math.max(0, codeList.length - 1));
+            else if (codeList[i] !== undefined) {
+              setCodeList(l => l.filter((_, k) => k !== i));
+              genSetIdx(Math.max(0, Math.min(i, codeList.length - 2)));
+            }
+          }
+        };
+      case 'codVista':
+        return {
+          kind: 'list',
+          rows: codeList.map(c => ({ left: c })),
+          fkeys: ['↑↓…P', '1RO', 'ULTIM', ''],
+          onF: (f, i) => {
+            if (f === 1) genSetIdx(i + 5 < codeList.length ? i + 5 : 0);
+            else if (f === 2) genSetIdx(0);
+            else if (f === 3) genSetIdx(Math.max(0, codeList.length - 1));
+          }
+        };
+      case 'codBorrarLista':
+        return {
+          kind: 'confirm',
+          lines: ['', 'Borrar lista', '   Confir ?'],
+          onYes: () => genTimed('|Borrando...', 900, () => { setCodeList([]); genPop(2); })
+        };
+
+      // ---------- CNFG: 9 opciones en 2 pantallas ----------
+      case 'cnfg':
+        return {
+          kind: 'menu',
+          title: 'Config',
+          items: [
+            { label: 'Cond. Obs.', onSelect: () => genOpen('condObs') },
+            { label: 'Config.Instr', onSelect: () => genOpen('instr') },
+            { label: 'Const Instr', onSelect: () => genOpen('constInstr') },
+            { label: 'Config.Comunic.', onSelect: () => genOpen('comCfg') },
+            { label: 'Unidades', onSelect: () => genOpen('unidades') },
+            { label: 'Tecla func', onSelect: () => genOpen('teclaFunc') },
+            { label: 'Cambiar Clave', onSelect: () => genOpen('clave', 'antig') },
+            { label: 'Fecha y hora', onSelect: () => abrirFechaHora() },
+            { label: 'TSshield', onSelect: () => genOpen('tsshield') }
+          ]
+        };
+      case 'condObs':
+        return {
+          kind: 'form',
+          rowsPerPage: 6,
+          fields: [
+            optField('obs.modoDist', 'Modo Dist'),
+            optField('obs.distH', 'Dist H'),
+            optField('obs.compens', 'ComPens.'),
+            optField('obs.corrCol', 'Corr.Col.'),
+            optField('obs.esfRef', 'Esf/Refr'),
+            optField('obs.nivMar', 'Corr.NivelMar'),
+            optField('obs.obsV', 'Obs.V'),
+            optField('obs.coord', 'Coord.'),
+            optField('obs.reso', 'Reso.ang'),
+            optField('obs.diana', 'ModoDiana'),
+            optField('obs.despAng', 'DesPAngV'),
+            numField('obs.incr', 'Incr.ID.Stn'),
+            optField('obs.vManual', 'V manual')
+          ]
+        };
+      case 'instr':
+        return {
+          kind: 'form',
+          rowsPerPage: 6,
+          fields: [
+            optField('instr.apagar', 'AutoAPagar'),
+            optField('retic', 'Niv Retic'),
+            optField('contraste', 'Contraste'),
+            optField('instr.resumir', 'Resumir'),
+            optField('instr.edmAlc', 'EDM ALC'),
+            optField('instr.luzGuia', 'Tipo LuzGuia')
+          ]
+        };
+      case 'constInstr':
+        return {
+          kind: 'menu',
+          title: 'Const Instr',
+          items: [
+            { label: 'ComP:X  -1   Y -12', onSelect: () => genOpen('constComp') },
+            { label: 'Colimacion', onSelect: () => genOpen('constColim') }
+          ]
+        };
+      case 'constComp':
+        return {
+          kind: 'custom',
+          fkeys: ['', '', '', 'OK'],
+          onF: f => { if (f === 4) genBack(); },
+          onEnter: () => genBack(),
+          render: () => (
+            <>
+              <div>DesPlaz. ComPen.</div>
+              <div className="flex justify-between"><span>X</span><span>{formatTiltDMSLong(compenX)}</span></div>
+              <div className="flex justify-between"><span>Y</span><span>{formatTiltDMSLong(compenY)}</span></div>
+              <div className="flex justify-between"><span>HA-D</span><span>{formatDMS(envHD)}</span></div>
+              <div className="pl-4">Obs 1er DesPl</div>
+            </>
+          )
+        };
+      case 'constColim':
+        return {
+          kind: 'custom',
+          fkeys: ['', '', '', 'OK'],
+          onF: f => { if (f === 4) genBack(); },
+          onEnter: () => genBack(),
+          render: () => (
+            <>
+              <div>Colimacion</div>
+              <div className="flex justify-between"><span>AV</span><span>{formatDMS(envV)}</span></div>
+              <div className="flex justify-between"><span>HA-D</span><span>{formatDMS(envHD)}</span></div>
+              <div>&nbsp;</div>
+              <div className="pl-4">Obs 1er DesPl</div>
+            </>
+          )
+        };
+      case 'unidades': {
+        const fields: GenField[] = [
+          optField('units.temp', 'TemP.'),
+          optField('units.pres', 'Pres.'),
+          optField('units.ang', 'Angulo'),
+          optField('units.dist', 'Dist')
+        ];
+        if (cfg['units.dist'] !== 'metro') fields.push(optField('units.pie', 'Pie'));
+        return { kind: 'form', rowsPerPage: 5, fields };
+      }
+      case 'teclaFunc':
+        return {
+          kind: 'menu',
+          title: 'Tecla func',
+          items: [
+            { label: 'Definir', onSelect: () => genOpen('teclaDefinir') },
+            { label: 'Registro', onSelect: () => genOpen('teclaRegistro') },
+            { label: 'Reclamar', onSelect: () => genOpen('teclaReclamar') }
+          ]
+        };
+      case 'teclaDefinir':
+        return {
+          kind: 'custom',
+          fkeys: ['', '', '', 'OK'],
+          onF: f => { if (f === 4) genBack(); },
+          onEnter: () => genBack(),
+          render: () => (
+            <>
+              <div>Tecla func</div>
+              {[['MED', 'GHV', 'AZ-0', 'COORD'], ['MENU', 'COMP', 'ANG.H', 'EDM'], ['MDR', 'DESPLZ', 'TOPO', 'REPL']].map(row => (
+                <div key={row[0]} className="grid grid-cols-4 gap-1 text-center">
+                  {row.map(k => <span key={k} className="lcd-inv px-0.5 truncate">{k}</span>)}
+                </div>
+              ))}
+            </>
+          )
+        };
+      case 'teclaRegistro':
+        return {
+          kind: 'menu',
+          title: 'Tecla func',
+          items: ['Usuario1', 'Usuario2'].map(u => ({ label: u, onSelect: () => genTimed(`Tecla func||  ${u}|  Registrado`, 1000, () => genPop(2)) }))
+        };
+      case 'teclaReclamar':
+        return {
+          kind: 'menu',
+          title: 'Tecla func',
+          items: ['Usuario1', 'Usuario2', 'Por defecto'].map(u => ({ label: u, onSelect: () => genTimed(`Tecla func||  ${u}|  Cargado`, 1000, () => genPop(2)) }))
+        };
+      case 'clave':
+        return {
+          kind: 'input',
+          lines: ['Cambiar Clave', param === 'antig' ? 'Clave antig' : 'Clave nueva'],
+          alpha: true,
+          onEnter: () => {
+            if (param === 'antig') { genPop(1); genOpen('clave', 'nueva'); }
+            else genTimed('Cambiar Clave||  Clave cambiada', 1000, () => genPop(1));
+          }
+        };
+      case 'fechaHora':
+        return {
+          kind: 'form',
+          title: 'Fecha y hora',
+          rowsPerPage: 4,
+          fields: [numField('fh.fech', 'Fech'), numField('fh.tiem', 'Tiem')]
+        };
+      case 'tsshield':
+        return {
+          kind: 'menu',
+          title: 'TSshield',
+          items: [
+            { label: 'Ajustes', onSelect: () => genOpen('msg', 'TSshield||  Sin conexion|  Pulsar Tecla') },
+            { label: 'Actualizacion', onSelect: () => genOpen('msg', 'TSshield||  Sin conexion|  Pulsar Tecla') }
+          ]
+        };
+
+      // ---------- MED Pág 2 > ANG.H ----------
+      case 'angh':
+        return {
+          kind: 'menu',
+          title: 'Fij. Ang.Hor',
+          items: [
+            { label: 'Angulo', onSelect: () => genOpen('anghAng') },
+            { label: 'Coord', onSelect: () => genOpen('anghCoord') }
+          ]
+        };
+      case 'anghAng':
+        return {
+          kind: 'input',
+          lines: ['Fij. Ang.Hor', 'Lect.Ref', `AV  ${lastMeas ? formatDMS(lastMeas.V) : 'Rango exced.'}`, `HA-D  ${formatDMS(envHD)}`],
+          alpha: false,
+          fkeys: ['REG', '', '', 'OK'],
+          onEnter: v => fijarAnguloH(v),
+          onF: f => { if (f === 1 || f === 4) fijarAnguloH(inputBuffer); }
+        };
+      case 'anghCoord':
+        return {
+          kind: 'form',
+          title: 'Intro Ang H Ref',
+          rowsPerPage: 4,
+          fields: [numField('angRef.X', 'Xref'), numField('angRef.Y', 'Yref'), numField('angRef.Z', 'Zref')],
+          fkeys: ['CARG', '', '', 'OK'],
+          onF: f => {
+            if (f === 1) openPicker('ANGH');
+            else if (f === 4) orientarConRef();
+          }
+        };
+
+      // ---------- MED Pág 3 > MDR ----------
+      case 'mdr':
+        return {
+          kind: 'menu',
+          title: 'MDR',
+          items: [
+            { label: 'Occ.Orien.', onSelect: () => { setOccReturn('GEN'); setActiveField(0); setScreenState('OCC_ORIEN'); } },
+            { label: 'MDR', onSelect: () => { setMdr({ pt: 1, p1: null, res: null }); genOpen('mdrObs'); } }
+          ]
+        };
+      case 'mdrObs':
+        return {
+          kind: 'custom',
+          fkeys: ['MOVR', '', 'MED', 'MDR'],
+          onF: f => {
+            if (f === 1) {
+              // MOVR: el último punto medido (PT02) pasa a ser el nuevo punto de inicio
+              setMdr(m => ({ ...m, pt: 2, p1: m.p2 ?? m.p1, p2: null, res: null }));
+            } else if (f === 3) medirMdr(false);
+            else if (f === 4) medirMdr(true);
+          },
+          render: () => (
+            <>
+              <div className="flex gap-6"><span>MDR</span><span>Ponga PT{String(mdr.pt).padStart(2, '0')}</span></div>
+              {mdr.res ? (
+                <>
+                  <div className="flex justify-between"><span>dGD</span><span>{mdr.res.dGD.toFixed(3)}m</span></div>
+                  <div className="flex justify-between"><span>dHD</span><span>{mdr.res.dHD.toFixed(3)}m</span></div>
+                  <div className="flex justify-between"><span>dVD</span><span>{mdr.res.dVD.toFixed(3)}m</span></div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between"><span>GD</span><span>{mdr.p1 ? `${mdr.p1.SD.toFixed(3)}m` : ''}</span></div>
+                  <div className={mdr.p1 ? 'flex justify-between' : 'flex gap-3'}><span>AV</span><span>{mdr.p1 ? formatDMS(mdr.p1.V) : 'Rango exced.'}</span></div>
+                  <div className="flex justify-between"><span>HA-D</span><span>{mdr.p1 ? formatDMS(mdr.p1.HA) : ''}</span></div>
+                </>
+              )}
+            </>
+          )
+        };
+      default:
+        return null;
+    }
+  };
+
+  // ----- Acciones usadas por las pantallas genéricas -----
+  const iniciarSalida = (fmt: string) => {
+    const sel = salidaSel.length ? salidaSel : [genStack.find(f => f.id === 'salidaJobs')?.idx ?? 0];
+    const total = sel.reduce((acc, i) => acc + jobCountAt(i), 0);
+    startSending('Salida Comunic.', fmt, total, () => {
+      // Los trabajos enviados quedan sin "*" (ya exportados)
+      setJobsList(prev => prev.map((j, i) => (sel.includes(i) ? jobClean(j) : j)));
+      setSalidaSel([]);
+      genExit('JOB_MENU');
+    });
+  };
+
+  const guardarDispositivo = (i: number, v: string) => {
+    const name = v.trim().toUpperCase();
+    if (!name) return;
+    setBtDevices(d => d.map((x, k) => (k === i ? (x.startsWith('*') ? `*${name}` : name) : x)));
+    genTimed('RegistroDisPositivo||  Registrado', 900, () => genPop(2));
+  };
+
+  const conectarEntrada = () => {
+    genTimed('Entrada Comms|||Conectando...', 1500, () => {
+      genPop(1);
+      genOpen('msg', 'Entrada Comms|Conexion fallo||  Pulsar Tecla');
+    });
+  };
+
+  const abrirFechaHora = () => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setCfg(c => ({
+      ...c,
+      'fh.fech': `${pad(now.getMonth() + 1)}${pad(now.getDate())}${now.getFullYear()}`,
+      'fh.tiem': `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+    }));
+    genOpen('fechaHora');
+  };
+
+  const fijarAnguloH = (v: string) => {
+    const val = parseFloat(v);
+    if (!isNaN(val)) setEnvHD(((parseDmsInput(val) % 360) + 360) % 360);
+    setCompenCtx('MED');
+    setCompenReturn('MED');
+    genExit('COMPEN');
+  };
+
+  const orientarConRef = () => {
+    const x = parseFloat(cfg['angRef.X']);
+    const y = parseFloat(cfg['angRef.Y']);
+    if (!isNaN(x) && !isNaN(y)) {
+      const { az } = calcAzDist({ N: y, E: x });
+      setAzimutInicial(((az - envHD) % 360 + 360) % 360);
+      setIsOriented(true);
+    }
+    setCompenCtx('MED');
+    setCompenReturn('MED');
+    genExit('COMPEN');
+  };
+
+  // Burbuja fuera de rango (X o Y "****"): el equipo manda a compensar antes de medir
+  const fueraDeNivel = () => Math.abs(compenX) > 210 || Math.abs(compenY) > 210;
+
+  const medirMdr = (esMdr: boolean) => {
+    if (fueraDeNivel()) {
+      setCompenCtx('MED');
+      setCompenReturn('GEN');
+      setScreenState('COMPEN');
+      return;
+    }
+    startMeasurement(() => {
+      const m = leerDistanciometro();
+      const haR = m.HA * (Math.PI / 180);
+      const p = { x: m.HD * Math.sin(haR), y: m.HD * Math.cos(haR), z: m.VD, SD: m.SD, V: m.V, HA: m.HA };
+      if (!esMdr || !mdr.p1) {
+        setMdr({ pt: 2, p1: p, res: null });
+      } else {
+        const dx = p.x - mdr.p1.x;
+        const dy = p.y - mdr.p1.y;
+        const dz = p.z - mdr.p1.z;
+        const dHD = Math.sqrt(dx * dx + dy * dy);
+        setMdr(prev => ({ ...prev, p2: p, res: { dGD: Math.sqrt(dHD * dHD + dz * dz), dHD, dVD: dz } }));
+      }
+    });
+  };
+
+  const genView = screenState === 'GEN' && genTop ? buildGenView(genTop.id, genTop.param) : null;
+
+  // Menú con el formato del LCD real: título arriba, opciones con sangría y la seleccionada invertida
+  const renderLcdMenu = (title: string, labels: string[], sel: number, onPick: (i: number) => void, subtitle?: string) => {
+    const size = subtitle ? 3 : 4;
+    const start = Math.max(0, Math.min(sel - 1, labels.length - size));
+    return (
+      <div className="relative text-[13px] leading-[1.15]">
+        <div>{title}</div>
+        {subtitle && <div>{subtitle}</div>}
+        {labels.slice(start, start + size).map((l, i) => (
+          <div key={l} className="pl-3 cursor-pointer" onClick={() => onPick(start + i)}>
+            <span className={start + i === sel ? 'lcd-inv px-0.5' : 'px-0.5'}>{l}</span>
+          </div>
+        ))}
+        <span className="absolute right-0 top-0 text-[14px] leading-none">
+          {start > 0 ? '▲' : ''}
+          {start + size < labels.length ? '▼' : ''}
+        </span>
+      </div>
+    );
+  };
+
+  // Campo actual de un formulario genérico
+  const genVisibleFields = genView && genView.kind === 'form' ? genView.fields : [];
+  const genCurField = genView && genView.kind === 'form' ? genVisibleFields[Math.min(genTop?.idx ?? 0, genVisibleFields.length - 1)] : undefined;
+  const genWantsAlpha = !!genView && ((genView.kind === 'input' && genView.alpha) || (genCurField?.kind === 'text'));
+  useEffect(() => {
+    if (genAlpha !== genWantsAlpha) setGenAlpha(genWantsAlpha);
+  }, [genAlpha, genWantsAlpha]);
+
+  const commitGenField = () => {
+    if (!genCurField) return;
+    if ((genCurField.kind === 'num' || genCurField.kind === 'text') && inputBuffer !== '') {
+      setCfgKey(genCurField.key, inputBuffer);
+    }
+    setInputBuffer('');
+  };
+
+  const genFKeyLabels = (): [string, string, string, string] => {
+    if (!genView) return ['', '', '', ''];
+    if (genView.kind === 'confirm') return ['', '', 'NO', 'SI'];
+    if (genView.kind === 'list') return genView.fkeys;
+    if (genView.kind === 'custom') return genView.fkeys;
+    if (genView.kind === 'input') return genView.fkeys ?? ['', '', '', ''];
+    if (genView.kind === 'form') return genView.fkeys ?? ['', '', '', ''];
+    return ['', '', '', ''];
+  };
+
+  const genItemCount = (): number => {
+    if (!genView) return 0;
+    if (genView.kind === 'menu') return genView.items.length;
+    if (genView.kind === 'form') return genView.fields.length;
+    if (genView.kind === 'list') return genView.rows.length;
+    return 0;
+  };
+
+  // ---------- Manejadores de las pantallas genéricas ----------
+  const genHandle = (ev: { type: 'f'; f: 1 | 2 | 3 | 4 } | { type: 'enter' } | { type: 'esc' } | { type: 'arrow'; dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' } | { type: 'key'; key: string } | { type: 'center' }): boolean => {
+    if (screenState !== 'GEN') return false;
+    if (!genView || !genTop) { genExit(); return true; }
+    const idx = genTop.idx;
+    const n = genItemCount();
+
+    if (genView.kind === 'msg') {
+      if (genView.timed) return true;
+      (genView.onKey ?? genBack)();
+      return true;
+    }
+    if (genView.kind === 'confirm') {
+      if ((ev.type === 'f' && ev.f === 4) || ev.type === 'enter') genView.onYes();
+      else if ((ev.type === 'f' && ev.f === 3) || ev.type === 'esc') (genView.onNo ?? genBack)();
+      return true;
+    }
+    if (ev.type === 'esc') {
+      if (genView.kind === 'form') commitGenField();
+      genBack();
+      return true;
+    }
+    if (genView.kind === 'menu') {
+      if (ev.type === 'arrow' && (ev.dir === 'UP' || ev.dir === 'DOWN')) genSetIdx((idx + (ev.dir === 'DOWN' ? 1 : -1) + n) % n);
+      else if (ev.type === 'enter') genView.items[idx]?.onSelect();
+      else if (ev.type === 'key') {
+        const kk = ev.key.replace('RAW:', '');
+        if (/^[1-9]$/.test(kk) && Number(kk) <= n) {
+          genSetIdx(Number(kk) - 1);
+          genView.items[Number(kk) - 1].onSelect();
+        }
+      }
+      return true;
+    }
+    if (genView.kind === 'list') {
+      if (ev.type === 'arrow' && n && (ev.dir === 'UP' || ev.dir === 'DOWN')) genSetIdx((idx + (ev.dir === 'DOWN' ? 1 : -1) + n) % n);
+      else if (ev.type === 'enter') genView.onEnter?.(idx);
+      else if (ev.type === 'f') genView.onF(ev.f, idx);
+      return true;
+    }
+    if (genView.kind === 'input') {
+      if (ev.type === 'enter') genView.onEnter(inputBuffer);
+      else if (ev.type === 'f') genView.onF?.(ev.f);
+      else if (ev.type === 'key') setInputBuffer(genView.alpha ? applyKeyToBuffer(ev.key, inputBuffer) : applyNumericKey(ev.key, inputBuffer));
+      return true;
+    }
+    if (genView.kind === 'custom') {
+      if (ev.type === 'f') genView.onF(ev.f);
+      else if (ev.type === 'enter') genView.onEnter?.();
+      return true;
+    }
+    // Formulario de ajustes
+    const field = genCurField;
+    if (ev.type === 'arrow') {
+      if (ev.dir === 'UP' || ev.dir === 'DOWN') {
+        commitGenField();
+        genSetIdx((idx + (ev.dir === 'DOWN' ? 1 : -1) + n) % n);
+      } else if (field?.kind === 'opt' && field.options) {
+        setCfgKey(field.key, cycleOption(field.options, cfg[field.key], ev.dir === 'RIGHT' ? 1 : -1));
+      }
+      return true;
+    }
+    if (ev.type === 'center') {
+      if (field?.kind === 'opt' && field.options) setCfgKey(field.key, cycleOption(field.options, cfg[field.key], 1));
+      return true;
+    }
+    if (ev.type === 'enter') {
+      if (field?.kind === 'link') field.onSelect?.();
+      else {
+        commitGenField();
+        genSetIdx((idx + 1) % n);
+      }
+      return true;
+    }
+    if (ev.type === 'f') {
+      commitGenField();
+      genView.onF?.(ev.f);
+      return true;
+    }
+    if (ev.type === 'key') {
+      if (field?.kind === 'num') {
+        // Fecha y hora: solo dígitos (MMDDAAAA / HHMMSS); el resto, número con signo y decimal
+        if (field.key.startsWith('fh.')) setInputBuffer(ev.key === 'BS' ? inputBuffer.slice(0, -1) : /^\d$/.test(ev.key) ? inputBuffer + ev.key : inputBuffer);
+        else setInputBuffer(applyNumericKey(ev.key, inputBuffer));
+      }
+      if (field?.kind === 'text') setInputBuffer(applyKeyToBuffer(ev.key, inputBuffer));
+      return true;
+    }
+    return true;
+  };
+
+  // ---------- Estrella: 9 opciones (Ent. Menu, ComPens., Contraste, Niv Retic, Reflector, Plom Laser, Niv. Laser, Mant.Illum, Punteo-L) ----------
+  type StarField = { key: string; label: string; opts?: string[]; level?: [number, number] };
+  const STAR_FIELDS: StarField[] = [
+    { key: 'entMenu', label: 'Ent. Menu' },
+    { key: 'obs.compens', label: 'ComPens.', opts: ['Si(H,V)', 'Si(V)', 'No'] },
+    { key: 'contraste', label: 'Contraste', level: [0, 15] },
+    { key: 'retic', label: 'Niv Retic', level: [0, 5] },
+    { key: 'reflector', label: 'Reflector', opts: ['Prism', 'Diana', 'N-Prism'] },
+    { key: 'plomLaser', label: 'Plom Laser', opts: ['Off', 'On'] },
+    { key: 'nivLaser', label: 'Niv. Laser', level: [0, 5] },
+    { key: 'mantIlum', label: 'Mant.Illum', opts: ['Laser', 'Guia'] },
+    { key: 'punteo', label: 'Punteo-L', opts: ['Off', 'On'] }
+  ];
+  const starGet = (key: string): string => {
+    if (key === 'reflector') return currentReflectorName === 'Prisma' ? 'Prism' : currentReflectorName;
+    if (key === 'mantIlum') return edmCfg.mantIlum === 'Guía' ? 'Guia' : 'Laser';
+    return cfg[key] ?? '';
+  };
+  const starSet = (key: string, v: string) => {
+    if (key === 'reflector') setReflectorByName(v === 'Prism' ? 'Prisma' : v);
+    else if (key === 'mantIlum') setEdmCfg(c => ({ ...c, mantIlum: v === 'Guia' ? 'Guía' : 'Láser' }));
+    else setCfgKey(key, v);
+  };
+  const starFKeyLabels = (): [string, string, string, string] => {
+    const fld = STAR_FIELDS[starField];
+    if (!fld.opts && !fld.level) return ['', '', '', 'ENT'];
+    if (fld.level) return ['', '', '', ''];
+    if (fld.opts && fld.opts.length === 3) return [fld.opts[0], fld.opts[1], fld.opts[2], ''];
+    return ['', fld.opts?.[0] || '', fld.opts?.[1] || '', ''];
+  };
+
+  // Lógica común de los códigos Cd (Estacionamiento u Observación)
+  const codeApply = (cd: string) => {
+    if (codeTarget === 'OBS') {
+      setTarget(t => ({ ...t, CD: cd }));
+      setInputBuffer(cd);
+      setScreenState('OBS');
+      setActiveField(1);
+    } else {
+      setStationAtm(a => ({ ...a, CD: cd }));
+      setInputBuffer(cd);
+      setScreenState('OCC_ORIEN');
+      setActiveField(5);
+    }
+  };
+  const codeReturnScreen = () => {
+    if (codeTarget === 'OBS') { setScreenState('OBS'); setActiveField(1); }
+    else { setScreenState('OCC_ORIEN'); setActiveField(5); }
+  };
+
+  const OBS2_ORDER = [2, 1, 0]; // HD -> Cd -> PTO (PTO en su propia pantalla, como el equipo)
+
+  const togglePlomada = () => {
+    const on = cfg['plomLaser'] !== 'On';
+    setCfgKey('plomLaser', on ? 'On' : 'Off');
+    setLcdMessage(on ? 'PLOMADA LÁSER\nENCENDIDA' : 'PLOMADA LÁSER\nAPAGADA');
+  };
+
+  const commitJobDetails = () => {
+    if (activeField === 0 && inputBuffer.trim()) {
+      const clean = inputBuffer.trim();
+      const oldClean = jobClean(jobName);
+      setJobName(clean);
+      setJobsList(prev => prev.map(j => (jobClean(j) === oldClean ? (j.startsWith('*') ? `*${clean}` : clean) : j)));
+    }
+    if (activeField === 1 && inputBuffer.trim() && !isNaN(parseFloat(inputBuffer))) {
+      setJobScale(parseFloat(inputBuffer).toFixed(8));
+    }
+  };
+
+  const commitReplCoord = () => {
+    if (inputBuffer.trim() === '') return;
+    const v = parseFloat(inputBuffer);
+    if (isNaN(v)) return;
+    if (activeField === 3) setTarget(t => ({ ...t, HR: v }));
+    else {
+      setReplPoint(p => {
+        const base = p ?? { PTO: '1', N: 0, E: 0, Z: 0, CD: '' };
+        if (activeField === 0) return { ...base, E: v };
+        if (activeField === 1) return { ...base, N: v };
+        return { ...base, Z: v };
+      });
+    }
+    setInputBuffer('');
+  };
+
+  const KNOWN_ITEMS = ['Entra. Coord', 'Entrada Comms', 'Borrar', 'Ver', 'Claro', 'Config.Comunic.'];
+  const abrirKnownItem = (i: number) => {
+    setKnownMenuSelection(i);
+    if (i === 1) { setScreenState('KNOWN_INPUT'); setActiveField(0); setInputBuffer(knownCoordsInput.Y); }
+    else if (i === 2) genOpen('entComms');
+    else if (i === 3) { setScreenState('KNOWN_DEL'); setSelectedKnownIdx(0); }
+    else if (i === 4) { setScreenState('KNOWN_VIEW'); setViewKnownIdx(0); }
+    else if (i === 5) genOpen('knownClaro');
+    else genOpen('comCfg');
+  };
+
+  const abrirDatoItem = (i: number) => {
+    setMenuSelection(i);
+    if (i === 1) { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
+    else if (i === 2) { setScreenState('KNOWN_MENU'); setKnownMenuSelection(1); }
+    else genOpen('cod');
+  };
+
+  const ov2FKey = (f: 1 | 2 | 3 | 4): boolean => {
+    if (measureAnim.active) return false;
+    if (isStarMenuOpen && starMode === 'SETTINGS') {
+      const fld = STAR_FIELDS[starField];
+      if (!fld.opts && !fld.level) {
+        if (f === 4) { setStarMode('MENU'); setStarMenuIdx(0); }
+      } else if (fld.opts) {
+        const start = fld.opts.length === 3 ? 1 : 2;
+        const opt = fld.opts[f - start];
+        if (opt) starSet(fld.key, opt);
+      }
+      return true;
+    }
+    if (isStarMenuOpen) return false;
+    switch (screenState) {
+      case 'TILT':
+        if (f === 1) setScreenState('ROOT');
+        else if (f === 2) togglePlomada();
+        return true;
+      case 'COMPEN':
+        if (f === 2) { togglePlomada(); return true; }
+        return false;
+      case 'ROOT':
+        if (f === 4) { genOpen('cnfg'); return true; }
+        return false;
+      case 'MED':
+        if (medPage === 1 && f === 1 && fueraDeNivel()) { goCompen('MED', 'MED'); return true; }
+        if (medPage === 2 && f === 3) { genOpen('angh'); return true; }
+        if (medPage === 3 && f === 1) { genOpen('mdr'); return true; }
+        return false;
+      case 'USB_MENU':
+      case 'DATO_MENU':
+      case 'JOB_MENU':
+      case 'KNOWN_MENU':
+      case 'JOB_LIST':
+      case 'JOB_DELETE_LIST':
+        return true;
+      case 'JOB_SELECT':
+        return f !== 1;
+      case 'JOB_DETAILS':
+        if (f === 4) { commitJobDetails(); setInputBuffer(''); setActiveField(0); setScreenState('JOB_MENU'); }
+        return true;
+      case 'KNOWN_DEL': {
+        const n = knownPoints.length;
+        if (f === 1) setSelectedKnownIdx(i => (i + 5 < n ? i + 5 : 0));
+        else if (f === 2) setSelectedKnownIdx(0);
+        else if (f === 3) setSelectedKnownIdx(Math.max(0, n - 1));
+        else if (n > 0) setScreenState('KNOWN_DEL_CONFIRM');
+        return true;
+      }
+      case 'TRISEC_PT':
+        if (f === 3 || f === 4) {
+          if (fueraDeNivel()) { goCompen('TRISEC', 'OCC_TRISEC'); return true; }
+          if (f === 3) { playLaserBeep(); setTrisecAng({ V: envV, HA: envHD }); }
+          else startMeasurement(() => { leerDistanciometro(); setTrisecAng({ V: envV, HA: envHD }); });
+        }
+        return true;
+      case 'OBS':
+        if (activeField === 1) {
+          commitCurrentField();
+          const cd = (inputBuffer.trim() || target.CD).toUpperCase();
+          setCodeTarget('OBS');
+          if (f === 1) { setCodeSearchBuffer(cd); setScreenState('CODE_ADD'); }
+          else if (f === 2) { const i = codeList.indexOf(cd); setCodeIdx(i >= 0 ? i : 0); setScreenState('CODE_LIST'); }
+          else if (f === 3) { setCodeSearchBuffer(''); setCodeIdx(0); setScreenState('CODE_SEARCH'); }
+          return true;
+        }
+        if ((f === 3 || f === 4) && fueraDeNivel()) { commitCurrentField(); goCompen('OBS', obsReturn); return true; }
+        return false;
+      case 'REPL_OBS':
+        if (f === 1) registrarPuntoObservado();
+        else if (f === 2) setMedView(v => (v === 'GHV' ? 'NORMAL' : 'GHV'));
+        else if (f === 3) setLcdMessage('← → DESPLAZAR\nVISTA DE REPLANTEO');
+        else if (fueraDeNivel()) goCompen('REPL', 'REPLANTEO_MENU');
+        else startMeasurement(() => { leerDistanciometro(); });
+        return true;
+      case 'OCC_ORIEN':
+        if (activeField === 5) setCodeTarget('OCC');
+        return false;
+      default:
+        return false;
+    }
+  };
+
+  const ov2Enter = (): boolean => {
+    if (measureAnim.active) return false;
+    if (isStarMenuOpen && starMode === 'SETTINGS') {
+      if (starField === 0) { setStarMode('MENU'); setStarMenuIdx(0); }
+      else setStarField(i => (i + 1) % STAR_FIELDS.length);
+      return true;
+    }
+    if (isStarMenuOpen) return false;
+    switch (screenState) {
+      case 'USB_MENU':
+        genOpen('usbType', usbMenuSelection === 1 ? 'T' : 'S');
+        return true;
+      case 'DATO_MENU':
+        abrirDatoItem(Math.min(3, Math.max(1, menuSelection)));
+        return true;
+      case 'JOB_MENU':
+        if (jobMenuSelection === 4) { genOpen('salida'); return true; }
+        if (jobMenuSelection === 5) { genOpen('comCfg'); return true; }
+        if (jobMenuSelection === 2) { setActiveField(0); setInputMode('ALF'); setScreenState('JOB_DETAILS'); return true; }
+        return false;
+      case 'JOB_SELECT':
+        setScreenState('JOB_MENU');
+        return true;
+      case 'JOB_DETAILS':
+        commitJobDetails();
+        setActiveField(f => (f === 0 ? 1 : 0));
+        return true;
+      case 'JOB_DELETE_LIST': {
+        const job = jobsList[selectedJobIdx];
+        if (!job) return true;
+        if (job.startsWith('*')) genOpen('msg', '|Enviar 1ro||  Pulsar Tecla');
+        else genOpen('jobDelConfirm', String(selectedJobIdx));
+        return true;
+      }
+      case 'KNOWN_MENU':
+        abrirKnownItem(Math.min(6, Math.max(1, knownMenuSelection)));
+        return true;
+      case 'KNOWN_DEL':
+        if (knownPoints.length > 0) setScreenState('KNOWN_DEL_CONFIRM');
+        return true;
+      case 'OBS': {
+        commitCurrentField();
+        const pos = OBS2_ORDER.indexOf(activeField);
+        setActiveField(OBS2_ORDER[(pos + 1) % OBS2_ORDER.length]);
+        return true;
+      }
+      case 'REPL_DATA':
+        if (replDisplayMode === 'COORD') {
+          commitReplCoord();
+          setActiveField(f => (f + 1) % 4);
+          return true;
+        }
+        return false;
+      case 'REPL_OBS':
+        return true;
+      case 'TOPO_MENU':
+        if (topoMenuSelection === 1) { goObservacion('TOPO_MENU'); return true; }
+        return false;
+      case 'REPLANTEO_MENU':
+        if (replMenuSelection === 3) { goCompen('REPL', 'REPLANTEO_MENU'); return true; }
+        if (replMenuSelection === 1) setOccReturn('REPLANTEO_MENU');
+        return false;
+      case 'COORD_MENU':
+        if (menuSelection === 1) setOccReturn('COORD_MENU');
+        return false;
+      case 'DESPLZ_MENU':
+        if (desplzReturn === 'OBS') { setLcdMessage('DESPLZ:\nEN DESARROLLO'); return true; }
+        if (desplzMenuSelection === 1) setOccReturn('DESPLZ_MENU');
+        return false;
+      default:
+        return false;
+    }
+  };
+
+  const ov2Esc = (): boolean => {
+    if (measureAnim.active || isStarMenuOpen) return false;
+    switch (screenState) {
+      case 'ROOT':
+        setScreenState('MED');
+        setMedPage(1);
+        return true;
+      case 'COMPEN':
+        if (compenCtx === 'OBS') { goObservacion(compenReturn); return true; }
+        return false;
+      case 'OCC_ORIEN':
+        commitCurrentField();
+        setActiveField(0);
+        setScreenState(occReturn === 'GEN' && genStack.length === 0 ? 'COORD_MENU' : occReturn);
+        return true;
+      case 'USB_SAVE_JOB':
+        setGenReturn('USB_MENU');
+        setGenStack([{ id: 'usbType', idx: 0, param: usbTypeMode }]);
+        setScreenState('GEN');
+        return true;
+      case 'REPL_OBS':
+        setInputBuffer('');
+        setActiveField(0);
+        setReplDisplayMode('COORD');
+        setScreenState('REPL_DATA');
+        return true;
+      case 'JOB_DETAILS':
+        setInputBuffer('');
+        setActiveField(0);
+        setScreenState('JOB_MENU');
+        return true;
+      case 'CODE_LIST':
+      case 'CODE_SEARCH':
+      case 'CODE_ADD':
+        codeReturnScreen();
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  const ov2Arrow = (dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'): boolean => {
+    if (measureAnim.active) return false;
+    const vert = dir === 'UP' || dir === 'DOWN';
+    const d = dir === 'DOWN' || dir === 'RIGHT' ? 1 : -1;
+    if (isStarMenuOpen && starMode === 'SETTINGS') {
+      if (vert) setStarField(i => (i + d + STAR_FIELDS.length) % STAR_FIELDS.length);
+      else {
+        const fld = STAR_FIELDS[starField];
+        if (fld.level) {
+          const cur = parseInt(starGet(fld.key), 10) || 0;
+          starSet(fld.key, String(Math.max(fld.level[0], Math.min(fld.level[1], cur + d))));
+        } else if (fld.opts) starSet(fld.key, cycleOption(fld.opts, starGet(fld.key), d as 1 | -1));
+      }
+      return true;
+    }
+    if (isStarMenuOpen) return false;
+    switch (screenState) {
+      case 'TILT':
+        if (vert) setCompenY(y => Math.max(-COMPEN_LIMIT, Math.min(COMPEN_LIMIT, y + (dir === 'UP' ? 10 : -10))));
+        else setCompenX(x => Math.max(-COMPEN_LIMIT, Math.min(COMPEN_LIMIT, x + d * 10)));
+        return true;
+      case 'DATO_MENU':
+        if (vert) setMenuSelection(s => ((s - 1 + d + 3) % 3) + 1);
+        return true;
+      case 'KNOWN_MENU':
+        if (vert) setKnownMenuSelection(s => ((s - 1 + d + 6) % 6) + 1);
+        return true;
+      case 'JOB_DETAILS':
+        if (vert) { commitJobDetails(); setActiveField(f => (f === 0 ? 1 : 0)); }
+        return true;
+      case 'OBS':
+        if (vert) {
+          commitCurrentField();
+          const pos = OBS2_ORDER.indexOf(activeField);
+          setActiveField(OBS2_ORDER[(pos + d + OBS2_ORDER.length) % OBS2_ORDER.length]);
+        }
+        return true;
+      case 'REPL_DATA':
+        if (replDisplayMode === 'COORD') {
+          if (vert) { commitReplCoord(); setActiveField(f => (f + d + 4) % 4); }
+          return true;
+        }
+        return false;
+      case 'DESPLZ_MENU':
+        if (desplzReturn === 'OBS') {
+          if (vert) setDesplzMenuSelection(s => ((s - 1 + d + 3) % 3) + 1);
+          return true;
+        }
+        return false;
+      default:
+        return false;
+    }
+  };
+
+  const ov2Key = (key: string): boolean => {
+    if (measureAnim.active || isStarMenuOpen) return false;
+    switch (screenState) {
+      case 'DATO_MENU':
+        if (/^[123]$/.test(key)) abrirDatoItem(Number(key));
+        return true;
+      case 'KNOWN_MENU':
+        if (/^[1-6]$/.test(key)) abrirKnownItem(Number(key));
+        return true;
+      case 'USB_MENU':
+        if (key === '1' || key === '2') { setUsbMenuSelection(Number(key)); genOpen('usbType', key === '1' ? 'T' : 'S'); }
+        return true;
+      case 'JOB_MENU':
+        if (key === '4') { setJobMenuSelection(4); genOpen('salida'); return true; }
+        if (key === '5') { setJobMenuSelection(5); genOpen('comCfg'); return true; }
+        if (key === '2') { setJobMenuSelection(2); setActiveField(0); setInputMode('ALF'); setScreenState('JOB_DETAILS'); return true; }
+        return false;
+      case 'JOB_DETAILS':
+        if (activeField === 1) { setInputBuffer(applyNumericKey(key, inputBuffer)); return true; }
+        return false;
+      case 'COORD_MENU':
+        if (key === '1') setOccReturn('COORD_MENU');
+        return false;
+      case 'TOPO_MENU':
+        if (key === '1') { setTopoMenuSelection(1); goObservacion('TOPO_MENU'); return true; }
+        return false;
+      case 'REPLANTEO_MENU':
+        if (key === '3') { setReplMenuSelection(3); goCompen('REPL', 'REPLANTEO_MENU'); return true; }
+        if (key === '1') setOccReturn('REPLANTEO_MENU');
+        return false;
+      case 'REPL_DATA':
+        if (replDisplayMode === 'COORD') { setInputBuffer(applyNumericKey(key, inputBuffer)); return true; }
+        return false;
+      default:
+        return false;
+    }
+  };
+
+  // Orden: pantallas genéricas (14-10) -> correcciones 14-10 -> correcciones 12-10 -> manejadores originales
   overrideRef.current = {
-    fkey: ovFKey,
-    enter: ovEnter,
-    esc: ovEsc,
-    arrow: ovArrow,
-    key: ovKey,
+    fkey: f => genHandle({ type: 'f', f }) || ov2FKey(f) || ovFKey(f),
+    enter: () => genHandle({ type: 'enter' }) || ov2Enter() || ovEnter(),
+    esc: () => genHandle({ type: 'esc' }) || ov2Esc() || ovEsc(),
+    arrow: dir => genHandle({ type: 'arrow', dir }) || ov2Arrow(dir) || ovArrow(dir),
+    key: key => genHandle({ type: 'key', key }) || ov2Key(key) || ovKey(key),
     shift: ovShift,
-    func: ovFunc
+    func: () => (screenState === 'GEN' ? true : ovFunc()),
+    center: () => {
+      genHandle({ type: 'center' });
+    }
   };
 
   // Soporte directo para teclado físico de PC
@@ -3751,12 +5174,6 @@ export default function App() {
 
   const fLabels = getFKeyLabels();
 
-  // Etiqueta del modo EDM en la barra superior
-  const getEdmBadge = () => {
-    if (edmMode === 'prism') return 'P1:PRISMA';
-    if (edmMode === 'sheet') return 'SHT:DIANA';
-    return 'NP:DIRECTA';
-  };
 
   // Arte dinámico SVG/LCD para las opciones del Menú Gráfico Principal
   const renderGraphicMenuSvg = (id: string) => {
@@ -4067,51 +5484,68 @@ export default function App() {
                 {/* MARCO RECESIVO DE LA PANTALLA LCD */}
                 <div className="bg-neutral-950 p-2.5 rounded-2xl border-2 border-neutral-800 shadow-inner flex flex-col min-w-0">
               
-              {/* PANTALLA LCD RETROILUMINADA (Fondo exacto #9CA3AF) */}
+              {/* PANTALLA LCD RETROILUMINADA (verde, como el equipo real) */}
               <div
-                className={`relative w-full h-[230px] rounded-lg p-2.5 font-mono transition-colors duration-300 shadow-inner border-2 border-neutral-700 flex flex-col justify-between overflow-hidden min-w-0 ${
-                  isBacklightOn ? 'bg-[#9CA3AF] text-neutral-950' : 'bg-[#7a8390] text-neutral-900'
+                className={`lcd-screen relative w-full h-[236px] rounded-md px-2.5 pt-2 pb-1.5 transition-colors duration-300 border-2 border-neutral-700 flex flex-col justify-between overflow-hidden min-w-0 ${
+                  isBacklightOn ? 'lcd-on' : 'lcd-off'
                 }`}
                 style={{
-                  backgroundImage: 'radial-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 0)',
-                  backgroundSize: '4px 4px',
+                  // Contraste del LCD (Estrella / Config.Instr): 0 = muy tenue, 15 = máximo
+                  filter: `contrast(${0.55 + (Math.min(15, Math.max(0, parseInt(cfg['contraste'], 10) || 11)) / 15) * 0.65})`
                 }}
               >
                 {/* MODAL / OVERLAY AJUSTES RÁPIDOS (BOTÓN FÍSICO DE ESTRELLA ★) */}
                 {isStarMenuOpen && (
-                  <div className="absolute inset-0 bg-[#9CA3AF] text-neutral-950 z-40 p-2.5 flex flex-col justify-between font-mono select-none">
-                    {starMode === 'SETTINGS' ? (
-                      <>
-                        <div className="border-b border-neutral-800/40 pb-0.5 flex justify-between items-center text-xs font-bold">
-                          <span>AJUSTES RÁPIDOS</span>
-                          <span className="text-[11px]">★</span>
-                        </div>
-                        <div className="flex-1 py-2 flex flex-col justify-center space-y-2 text-xs">
-                          <div className="flex justify-between items-center px-1">
-                            <span>Compens.</span>
-                            <span className="font-bold">:Si(H,V)</span>
+                  <div className="absolute inset-x-0 top-0 bottom-[28px] lcd-bg z-40 px-2.5 pt-2 pb-1 flex flex-col justify-between font-mono select-none">
+                    {starMode === 'SETTINGS' ? (() => {
+                      // 9 opciones en 3 pantallas de 4 (Ent. Menu, ComPens., Contraste, Niv Retic / Reflector, Plom Laser, Niv. Laser, Mant.Illum / Punteo-L)
+                      const page = Math.floor(starField / 4);
+                      const rows = STAR_FIELDS.slice(page * 4, page * 4 + 4);
+                      const cur = STAR_FIELDS[starField];
+                      return (
+                        <div className="relative flex flex-col h-full text-[13px] leading-[1.15]">
+                          <div className="flex-1">
+                            {rows.map((fld, i) => {
+                              const idx = page * 4 + i;
+                              const isCur = idx === starField;
+                              return (
+                                <div key={fld.key} onClick={() => setStarField(idx)} className="flex cursor-pointer whitespace-nowrap">
+                                  {!fld.opts && !fld.level ? (
+                                    <span className={isCur ? 'lcd-inv px-0.5' : 'px-0.5'}>{fld.label}</span>
+                                  ) : (
+                                    <>
+                                      <span className="w-[48%] shrink-0">{fld.label}</span>
+                                      <span>:</span>
+                                      <span className={isCur ? 'lcd-inv px-0.5' : 'px-0.5'}>{starGet(fld.key)}</span>
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div className="flex justify-between items-center px-1">
-                            <span>Contraste</span>
-                            <span className="font-bold">:5</span>
-                          </div>
-                          <div className="flex justify-between items-center px-1">
-                            <span>Niv Retic</span>
-                            <span className="font-bold">:3</span>
-                          </div>
+                          {cur.level ? (
+                            <div className="flex items-center gap-2">
+                              <span>Niv.</span>
+                              <span className="tracking-[-2px]">{'▶'.repeat(parseInt(starGet(cur.key), 10) || 0)}</span>
+                              <span className="lcd-inv px-0.5 ml-auto">{starGet(cur.key)}</span>
+                            </div>
+                          ) : page === 0 ? (
+                            <div className="text-center">Pulse &lt;ENT&gt; tecl.</div>
+                          ) : null}
+                          <span className="absolute right-0 top-0 text-[14px] leading-none">
+                            {page > 0 ? '▲' : ''}
+                            {page < 2 ? '▼' : ''}
+                          </span>
                         </div>
-                        <div className="text-[10px] text-center border-t border-neutral-800/40 pt-1 font-bold">
-                          Pulse &lt;ENT&gt; tecla menú
-                        </div>
-                      </>
-                    ) : (
+                      );
+                    })() : (
                       <div className="flex h-full gap-2">
                         <div className="flex-1 space-y-0.5 text-xs pt-1">
                           {STAR_MENU_ITEMS.map((item, i) => (
                             <div
                               key={item.name}
                               onClick={() => setStarMenuIdx(i)}
-                              className={`px-1.5 py-0.5 rounded cursor-pointer ${starMenuIdx === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                              className={`px-1.5 py-0.5 rounded cursor-pointer ${starMenuIdx === i ? 'lcd-inv font-black' : ''}`}
                             >
                               {item.name}
                             </div>
@@ -4129,97 +5563,13 @@ export default function App() {
                   </div>
                 )}
 
-                {/* 1. BARRA SUPERIOR LCD (Compensador, Modo EDM ciclante por SFT, Batería) */}
-                <div className="flex items-center justify-between border-b border-neutral-800/40 pb-1 text-[11px] font-bold tracking-wider">
-                  <div className="flex items-center gap-1.5">
-                    <span className="bg-neutral-900 text-[#9CA3AF] px-1 py-0.2 rounded text-[10px]">
-                      {screenState === 'TILT' || screenState === 'COMPEN'
-                        ? 'TIL'
-                        : screenState === 'ROOT'
-                        ? 'ROOT'
-                        : screenState === 'MED'
-                        ? `P${medPage}`
-                        : screenState === 'MAIN'
-                        ? `P${mainPage}`
-                        : screenState === 'OBS'
-                        ? 'REC'
-                        : screenState === 'OCC_ORIEN'
-                        ? `P${occPageOf(activeField) + 1}`
-                        : screenState === 'OCC_LOAD_LIST'
-                        ? 'LIST'
-                        : screenState === 'OCC_LOAD_SEARCH'
-                        ? 'BUSC'
-                        : screenState === 'OCC_ACLER'
-                        ? 'ACLR'
-                        : screenState === 'OCC_TRISEC'
-                        ? 'TRIS'
-                        : screenState === 'GRAPHIC_MENU'
-                        ? 'MENU'
-                        : screenState === 'REPLANTEO_MENU'
-                        ? 'REPL'
-                        : screenState === 'REPL_DATA'
-                        ? 'DATA'
-                        : screenState === 'TOPO_MENU'
-                        ? 'TOPO'
-                        : screenState === 'TOPO_NOTA'
-                        ? 'NOTA'
-                        : screenState === 'TOPO_VER'
-                        ? 'VER'
-                        : screenState === 'EDM_MENU'
-                        ? 'EDM'
-                        : screenState === 'DESPLZ_MENU'
-                        ? 'OFFS'
-                        : screenState === 'USB_MENU' || screenState === 'USB_TTYPE'
-                        ? 'USB'
-                        : screenState === 'TRISEC_PT' || screenState === 'TRISEC_AJ'
-                        ? 'TRIS'
-                        : screenState === 'CODE_LIST' || screenState === 'CODE_SEARCH' || screenState === 'CODE_ADD'
-                        ? 'Cd'
-                        : screenState === 'VER_DETAIL'
-                        ? 'VER'
-                        : screenState === 'TOPO_PTTRN' || screenState === 'TOPO_MODEL'
-                        ? 'TOPO'
-                        : screenState === 'REPL_OBS'
-                        ? 'REPL'
-                        : 'MENU'}
-                    </span>
-
-                    {/* Reflector EDM (se cambia en la pantalla EDM) */}
-                    <span
-                      className="bg-neutral-800/20 px-1 rounded text-[10px]"
-                      title="Reflector EDM (se cambia en MED Pág 2 > EDM o en COORD > EDM)"
-                    >
-                      [{getEdmBadge()}]
-                    </span>
-
-                    {/* Modo de entrada (SHIFT): NUM / ALP / SIM */}
-                    <span className="text-neutral-900 text-[10px]" title="SHIFT cambia el modo de escritura en campos de texto">
-                      {isCurrentFieldAlpha ? (inputMode === 'NUM' ? '[NUM]' : inputMode === 'ALF' ? '[ALP]' : '[SIM]') : '[NUM]'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {isOriented && (
-                      <span className="text-[9px] bg-neutral-800/25 px-1 rounded font-bold">
-                        ORI:OK
-                      </span>
-                    )}
-                    <span className="text-[9px] bg-neutral-800/20 px-1 rounded font-mono font-bold truncate max-w-[80px]" title={`Proyecto: ${jobName}`}>
-                      {jobName}
-                    </span>
-                    <div className="flex items-center gap-1 font-bold text-neutral-950" title="Batería 100%">
-                      <Battery size={13} className="stroke-[2.5]" />
-                      <span className="text-[10px]">100%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. ÁREA CENTRAL DE PANTALLA LCD SEGÚN MÁQUINA DE ESTADOS */}
-                <div className="flex-1 py-1 flex flex-col justify-center text-xs leading-relaxed min-w-0 overflow-hidden">
+                {/* 2. ÁREA CENTRAL DE PANTALLA LCD + COLUMNA DE ICONOS A LA DERECHA (como el equipo real) */}
+                <div className="flex-1 flex min-h-0 gap-1">
+                <div className="flex-1 py-0.5 flex flex-col justify-start text-xs leading-tight min-w-0 overflow-hidden">
                   
                   {/* ALERTA TEMPORAL EN PANTALLA LCD */}
                   {lcdMessage ? (
-                    <div className="bg-neutral-950 text-[#9CA3AF] p-2 rounded shadow border border-neutral-800 text-center font-bold whitespace-pre-line text-xs break-words overflow-hidden max-w-full">
+                    <div className="lcd-inv p-2 rounded shadow border border-neutral-800 text-center font-bold whitespace-pre-line text-xs break-words overflow-hidden max-w-full">
                       {lcdMessage}
                     </div>
                   ) : measureAnim.active || isMeasuring ? (
@@ -4251,32 +5601,111 @@ export default function App() {
                   ) : (
                     <>
                       {/* ESTADO 'TILT': COMPENSADOR DIGITAL DE ARRANQUE */}
-                      {screenState === 'TILT' && (
-                        <div className="space-y-1 text-center font-mono">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 pb-0.5">
-                            --- NIVEL ELECTRÓNICO (TILT) ---
-                          </div>
-                          
-                          {/* Diana Gráfica de Burbuja Electrónica */}
-                          <div className="flex items-center justify-center py-1">
-                            <div className="relative w-24 h-12 border-2 border-neutral-800 rounded-full flex items-center justify-center bg-black/5">
-                              <div className="absolute w-full h-[1px] bg-neutral-800/40"></div>
-                              <div className="absolute h-full w-[1px] bg-neutral-800/40"></div>
-                              <div className="w-5 h-5 rounded-full border border-neutral-900 flex items-center justify-center">
-                                <div className="w-2.5 h-2.5 rounded-full bg-neutral-900 animate-ping"></div>
+                      {/* ESTADO 'GEN': PANTALLAS GENÉRICAS (menús, ajustes, avisos, confirmaciones) */}
+                      {screenState === 'GEN' && genView && genTop && (() => {
+                        const VISIBLE = 5;
+                        const scrollWindow = <T,>(arr: T[], sel: number, size: number) => {
+                          const start = Math.max(0, Math.min(sel - Math.floor(size / 2), arr.length - size));
+                          return { start, items: arr.slice(start, start + size) };
+                        };
+                        const moreAbove = (start: number) => start > 0;
+                        const moreBelow = (start: number, size: number, total: number) => start + size < total;
+                        const arrows = (up: boolean, down: boolean) => (
+                          <span className="absolute right-0 top-0 text-[14px] leading-none">{up ? '▲' : ''}{down ? '▼' : ''}</span>
+                        );
+                        if (genView.kind === 'menu') {
+                          const size = genView.title ? VISIBLE - 1 : VISIBLE;
+                          const { start, items } = scrollWindow(genView.items, genTop.idx, size);
+                          return (
+                            <div className="relative text-[13px] leading-[1.15]">
+                              {genView.title && <div>{genView.title}</div>}
+                              {items.map((it, i) => (
+                                <div
+                                  key={it.label}
+                                  onClick={() => { genSetIdx(start + i); it.onSelect(); }}
+                                  className="pl-3 cursor-pointer"
+                                >
+                                  <span className={start + i === genTop.idx ? 'lcd-inv px-0.5' : 'px-0.5'}>{it.label}</span>
+                                </div>
+                              ))}
+                              {arrows(moreAbove(start), moreBelow(start, size, genView.items.length))}
+                            </div>
+                          );
+                        }
+                        if (genView.kind === 'form') {
+                          const size = genView.title ? genView.rowsPerPage - 1 : genView.rowsPerPage;
+                          const page = Math.floor(genTop.idx / size);
+                          const fieldsPage = genView.fields.slice(page * size, page * size + size);
+                          const totalPages = Math.ceil(genView.fields.length / size);
+                          return (
+                            <div className="relative text-[13px] leading-[1.15]">
+                              {genView.title && <div>{genView.title}</div>}
+                              {fieldsPage.map((fld, i) => {
+                                const isCur = page * size + i === genTop.idx;
+                                const shown = isCur && (fld.kind === 'num' || fld.kind === 'text') && inputBuffer !== '' ? `${inputBuffer}_` : fld.value ?? '';
+                                return (
+                                  <div
+                                    key={fld.key}
+                                    onClick={() => { commitGenField(); genSetIdx(page * size + i); }}
+                                    className="flex cursor-pointer whitespace-nowrap"
+                                  >
+                                    {fld.kind === 'link' ? (
+                                      <span className={`pl-3 ${isCur ? 'lcd-inv px-0.5' : 'px-0.5'}`}>{fld.label}</span>
+                                    ) : (
+                                      <>
+                                        <span className="w-[46%] shrink-0 truncate">{fld.label}</span>
+                                        <span>:</span>
+                                        <span className={`truncate ${isCur ? 'lcd-inv px-0.5' : 'px-0.5'}`}>{shown}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {arrows(page > 0, page < totalPages - 1)}
+                            </div>
+                          );
+                        }
+                        if (genView.kind === 'list') {
+                          const { start, items } = scrollWindow(genView.rows, genTop.idx, genView.title ? VISIBLE - 1 : VISIBLE);
+                          return (
+                            <div className="relative text-[13px] leading-[1.15]">
+                              {genView.title && <div>{genView.title}</div>}
+                              {items.map((r, i) => (
+                                <div
+                                  key={r.left + (start + i)}
+                                  onClick={() => genSetIdx(start + i)}
+                                  onDoubleClick={() => handleEnterPress()}
+                                  className={`flex justify-between pr-4 cursor-pointer ${start + i === genTop.idx ? 'lcd-inv' : ''}`}
+                                >
+                                  <span className="px-0.5">{r.left}</span>
+                                  <span>{r.right ?? ''}</span>
+                                </div>
+                              ))}
+                              {genView.rows.length === 0 && <div>&nbsp;</div>}
+                              {arrows(moreAbove(start), moreBelow(start, VISIBLE, genView.rows.length))}
+                            </div>
+                          );
+                        }
+                        if (genView.kind === 'msg' || genView.kind === 'confirm') {
+                          return (
+                            <div className="text-[13px] leading-[1.2] whitespace-pre">
+                              {genView.lines.map((l, i) => <div key={i}>{l || '\u00A0'}</div>)}
+                            </div>
+                          );
+                        }
+                        if (genView.kind === 'input') {
+                          return (
+                            <div className="text-[13px] leading-[1.2]">
+                              {genView.lines.map((l, i) => <div key={i} className="whitespace-pre">{l}</div>)}
+                              <div className="flex">
+                                <span>:</span>
+                                <span className="lcd-inv px-0.5 min-w-[60%]">{inputBuffer}_</span>
                               </div>
                             </div>
-                          </div>
-
-                          <div className="flex justify-around text-xs font-bold text-neutral-950">
-                            <span>X : 0°00&apos;04&quot;</span>
-                            <span>Y : -0°00&apos;02&quot;</span>
-                          </div>
-                          <div className="text-[10px] text-neutral-700 italic">
-                            Compensador de doble eje calibrado. Pulse [F1 OK].
-                          </div>
-                        </div>
-                      )}
+                          );
+                        }
+                        return <div className="text-[13px] leading-[1.2] space-y-0">{genView.render()}</div>;
+                      })()}
 
                       {/* 1. ESTADO 'ROOT': PANTALLA RAÍZ TOPCON ES-105 */}
                       {screenState === 'ROOT' && (
@@ -4307,9 +5736,6 @@ export default function App() {
                               <span className="text-[11px] font-bold text-neutral-800">PPm</span>
                               <span className="text-[11px] font-black text-neutral-950">{stationAtm.ppm}</span>
                               {medView === 'GHV' && <Lock size={11} className="stroke-[2.5] text-neutral-900" />}
-                              <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded font-bold">
-                                P{medPage}
-                              </span>
                             </div>
                           </div>
 
@@ -4323,20 +5749,15 @@ export default function App() {
                           ) : (
                             <div className="space-y-1.5 py-1 text-left font-bold text-neutral-950">
                               <div className="flex justify-between"><span>HD</span><span className="font-black">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
-                              <div className="tracking-tight text-neutral-900">AZ Rango exced.</div>
+                              <div className={lastMeas ? 'flex justify-between' : 'flex gap-3'}><span>AV</span><span>{lastMeas ? formatDMS(lastMeas.V) : 'Rango exced.'}</span></div>
                               <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
                             </div>
                           )}
-
-                          <div className="text-[9.5px] text-neutral-700 flex justify-between font-mono pt-0.5 border-t border-neutral-800/20">
-                            <span>Pág {medPage}/3 (FUNC)</span>
-                            <span>ESC = ROOT</span>
-                          </div>
                         </div>
                       )}
 
                       {/* ESTADO 'COMPEN': COMPENSADOR ComPen con sliders de nivelación (X = tornillos A+B, Y = tornillo C) */}
-                      {screenState === 'COMPEN' && (() => {
+                      {(screenState === 'COMPEN' || screenState === 'TILT') && (() => {
                         const xDisplay = Math.abs(compenX) > 210 ? '* * * *' : formatTiltDMS(compenX);
                         const yDisplay = Math.abs(compenY) > 210 ? '* * * *' : formatTiltDMS(compenY);
 
@@ -4420,111 +5841,29 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'DATO_MENU': MENÚ DATO (1. TRABAJO, 2. DATOS CONOCIDOS) */}
-                      {screenState === 'DATO_MENU' && (
-                        <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide">
-                            --- MENÚ DATO ---
-                          </div>
-                          {[
-                            { id: 1, label: '1. TRABAJO' },
-                            { id: 2, label: '2. DATOS CONOCIDOS' }
-                          ].map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                setMenuSelection(item.id);
-                                if (item.id === 1) { setScreenState('JOB_MENU'); setJobMenuSelection(1); }
-                                else if (item.id === 2) { setScreenState('KNOWN_MENU'); setKnownMenuSelection(1); }
-                              }}
-                              className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
-                                menuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                              }`}
-                            >
-                              <span>{item.label}</span>
-                              {menuSelection === item.id && <span>[ENT]</span>}
-                            </div>
-                          ))}
-                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
-                            Seleccione opción y pulse [ENT]
-                          </div>
-                        </div>
-                      )}
+                      {/* ESTADO 'DATO_MENU': Dato (TRABJ, Datos Conocidos, Cod.) */}
+                      {screenState === 'DATO_MENU' &&
+                        renderLcdMenu('Dato', ['TRABJ', 'Datos Conocidos', 'Cod.'], Math.min(2, Math.max(0, menuSelection - 1)), i => abrirDatoItem(i + 1))}
 
-                      {/* 1. SUBMENÚ TRABJ (5 OPCIONES ESTRICTAS) */}
-                      {screenState === 'JOB_MENU' && (
-                        <div className="space-y-0.5 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px] font-mono">
-                            <span>--- TRABJ ---</span>
-                            <span className="text-[10px] text-neutral-800 font-bold">[{jobMenuSelection}/5]</span>
-                          </div>
-                          {[
-                            { id: 1, label: '1. Selec TRABJ' },
-                            { id: 2, label: '2. Detalles de TRABJ' },
-                            { id: 3, label: '3. Borrar TRABJ' },
-                            { id: 4, label: '4. Salida Comunic.' },
-                            { id: 5, label: '5. Config.Comunic.' }
-                          ].map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                setJobMenuSelection(item.id);
-                                if (item.id === 1) setScreenState('JOB_SELECT');
-                                else if (item.id === 2) { setScreenState('JOB_DETAILS'); setInputBuffer(jobName.replace(/^\*/, '')); }
-                                else if (item.id === 3) { setScreenState('JOB_DELETE_LIST'); setSelectedJobIdx(0); }
-                                else if (item.id === 4) setLcdMessage('SALIDA COMUNIC:\nENVIANDO DATOS RS-232C');
-                                else if (item.id === 5) setLcdMessage('CONFIG. COMUNIC:\nBAUD: 1200\nPARIDAD: NONE');
-                              }}
-                              className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] font-mono min-w-0 ${
-                                jobMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10 text-neutral-900 font-semibold'
-                              }`}
-                            >
-                              <span className="truncate">{item.label}</span>
-                              {jobMenuSelection === item.id && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
-                            </div>
-                          ))}
-                          <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono font-medium">
-                            ▲ ▼ Seleccionar - [ENT] Entrar
-                          </div>
-                        </div>
-                      )}
+                      {/* ESTADO 'JOB_MENU': TRABJ */}
+                      {screenState === 'JOB_MENU' &&
+                        renderLcdMenu(
+                          'TRABJ',
+                          ['Selec TRABJ', 'Detalles de TRABJ', 'Borrar TRABJ', 'Salida Comunic.', 'Config.Comunic.'],
+                          jobMenuSelection - 1,
+                          i => { setJobMenuSelection(i + 1); handleKeypadPress(String(i + 1)); }
+                        )}
 
-                      {/* 2. ESTADO 'JOB_SELECT': SELECCIONAR TRABJ (DOS LÍNEAS) */}
+                      {/* 2. ESTADO 'JOB_SELECT': Selec. TRABJ / Busca Coord TRABJ (F1 = LIST) */}
                       {screenState === 'JOB_SELECT' && (
-                        <div className="space-y-1.5 font-mono text-xs px-1">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide text-[11px] font-mono">
-                            --- SELEC TRABJ ---
+                        <div className="text-[13px] leading-[1.15]">
+                          <div>Selec. TRABJ</div>
+                          <div onClick={() => setJobSelectField(0)} className="cursor-pointer">
+                            :<span className={jobSelectField === 0 ? 'lcd-inv px-0.5 inline-block min-w-[70%]' : 'px-0.5'}>{jobClean(jobName)}</span>
                           </div>
-                          <div className="space-y-1 pt-0.5">
-                            <div
-                              onClick={() => setJobSelectField(0)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 font-mono text-xs ${
-                                jobSelectField === 0
-                                  ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
-                                  : 'bg-black/5 border-transparent text-neutral-950 font-bold'
-                              }`}
-                            >
-                              <span className="shrink-0">Selec TRABJ:</span>
-                              <span className="font-mono truncate max-w-[60%] overflow-hidden text-right">
-                                {jobsList.find(j => j.replace(/^\*/, '') === jobName.replace(/^\*/, '')) || (jobName.startsWith('JOB') ? jobName : `*${jobName}`)}
-                              </span>
-                            </div>
-                            <div
-                              onClick={() => setJobSelectField(1)}
-                              className={`p-1.5 rounded cursor-pointer flex items-center justify-between border min-w-0 font-mono text-xs ${
-                                jobSelectField === 1
-                                  ? 'bg-neutral-900 text-[#9CA3AF] border-neutral-800 font-black'
-                                  : 'bg-black/5 border-transparent text-neutral-950 font-bold'
-                              }`}
-                            >
-                              <span className="shrink-0">Busca Coord TRABJ:</span>
-                              <span className="font-mono truncate max-w-[50%] overflow-hidden text-right">
-                                {jobsList.find(j => j.replace(/^\*/, '') === coordJobName.replace(/^\*/, '')) || (coordJobName.startsWith('JOB') ? coordJobName : `*${coordJobName}`)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-mono font-bold">
-                            Presione [F1 LIST] para ver lista de trabajos
+                          <div>Busca Coord TRABJ</div>
+                          <div onClick={() => setJobSelectField(1)} className="cursor-pointer">
+                            :<span className={jobSelectField === 1 ? 'lcd-inv px-0.5 inline-block min-w-[70%]' : 'px-0.5'}>{jobClean(coordJobName)}</span>
                           </div>
                         </div>
                       )}
@@ -4549,85 +5888,67 @@ export default function App() {
                                     onClick={() => setSelectedJobIdx(globalIdx)}
                                     className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
                                       isSelected
-                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                        ? 'lcd-inv font-black'
                                         : 'hover:bg-black/10 text-neutral-900 font-semibold'
                                     }`}
                                   >
                                     <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
+                                    
                                   </div>
                                 );
                               })}
                             </div>
-                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
+                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate lcd-hint">
                               * No exportado a USB - [ENT] Seleccionar
                             </div>
                           </div>
                         );
                       })()}
 
-                      {/* 3. ESTADO 'JOB_DETAILS': DETALLES DE TRABJ CON ESCAL: 1.00000000 */}
+                      {/* 3. ESTADO 'JOB_DETAILS': Detalles de TRABJ (Nom. TRA y ESCAL editables) */}
                       {screenState === 'JOB_DETAILS' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
-                            <span>DETALLES DE TRABJ</span>
-                            <span className="text-[10px] font-black">F4=[OK]</span>
+                        <div className="text-[13px] leading-[1.15]">
+                          <div>Detalles de TRABJ</div>
+                          <div className="pl-1">Nom. TRA</div>
+                          <div onClick={() => setActiveField(0)} className="cursor-pointer">
+                            :<span className={activeField === 0 ? 'lcd-inv px-0.5 inline-block min-w-[70%]' : 'px-0.5'}>
+                              {activeField === 0 ? `${inputBuffer}_` : jobClean(jobName)}
+                            </span>
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1.5 rounded flex justify-between items-center font-bold text-xs min-w-0">
-                            <span className="shrink-0">TRAB:</span>
-                            <span className="font-mono truncate max-w-[65%] overflow-hidden text-right">{inputBuffer}_</span>
-                          </div>
-                          <div className="bg-black/5 px-2 py-1.5 rounded border border-neutral-800/20 text-neutral-950 font-bold flex justify-between items-center">
+                          <div onClick={() => setActiveField(1)} className="cursor-pointer flex">
                             <span>ESCAL:</span>
-                            <span className="font-mono font-black text-xs">1.00000000</span>
-                          </div>
-                          <div className="text-[10px] text-neutral-700 flex justify-between pt-0.5 font-sans font-bold">
-                            <span>PUNTOS: {points.length}</span>
-                            <span>F4 = [OK]</span>
+                            <span className={activeField === 1 ? 'lcd-inv px-0.5' : 'px-0.5'}>
+                              {activeField === 1 ? `${inputBuffer}_` : jobScale}
+                            </span>
                           </div>
                         </div>
                       )}
 
-                      {/* 4. ESTADO 'JOB_DELETE_LIST': SELECCIONAR TRABAJO PARA BORRAR */}
+                      {/* 4. ESTADO 'JOB_DELETE_LIST': Borrar TRABJ (nombre y cantidad de puntos) */}
                       {screenState === 'JOB_DELETE_LIST' && (() => {
-                        const currentPage = Math.floor(selectedJobIdx / 5);
-                        const visibleJobs = jobsList.slice(currentPage * 5, (currentPage + 1) * 5);
+                        const size = 4;
+                        const start = Math.max(0, Math.min(selectedJobIdx - 1, jobsList.length - size));
                         return (
-                          <div className="space-y-1 font-mono text-xs px-1">
-                            <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5 font-mono text-rose-950">
-                              <span>BORRAR TRABJ</span>
-                              <span className="text-[10px] font-bold">[{currentPage + 1}/2]</span>
-                            </div>
-                            <div className="space-y-0.5">
-                              {visibleJobs.map((job, localIdx) => {
-                                const globalIdx = currentPage * 5 + localIdx;
-                                const isSelected = selectedJobIdx === globalIdx;
-                                return (
-                                  <div
-                                    key={job + globalIdx}
-                                    onClick={() => {
-                                      if (selectedJobIdx === globalIdx) {
-                                        setJobDeleteTarget(job);
-                                        setScreenState('JOB_DELETE_CONFIRM');
-                                      } else {
-                                        setSelectedJobIdx(globalIdx);
-                                      }
-                                    }}
-                                    className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
-                                      isSelected
-                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
-                                        : 'hover:bg-black/10 text-neutral-900 font-semibold'
-                                    }`}
-                                  >
-                                    <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
-                              Seleccione trabajo y pulse [ENT] para confirmar
-                            </div>
+                          <div className="relative text-[13px] leading-[1.15]">
+                            <div>Borrar TRABJ</div>
+                            {jobsList.slice(start, start + size).map((job, i) => {
+                              const idx = start + i;
+                              return (
+                                <div
+                                  key={job + idx}
+                                  onClick={() => setSelectedJobIdx(idx)}
+                                  onDoubleClick={() => handleEnterPress()}
+                                  className={`flex justify-between pr-4 cursor-pointer ${idx === selectedJobIdx ? 'lcd-inv' : ''}`}
+                                >
+                                  <span className="px-0.5">{job}</span>
+                                  <span>{jobCountAt(idx)}</span>
+                                </div>
+                              );
+                            })}
+                            <span className="absolute right-0 top-0 text-[14px] leading-none">
+                              {start > 0 ? '▲' : ''}
+                              {start + size < jobsList.length ? '▼' : ''}
+                            </span>
                           </div>
                         );
                       })()}
@@ -4657,7 +5978,7 @@ export default function App() {
                             <span>SELECCIÓN TRABAJO</span>
                             <span className="text-[10px] font-black">F4=[ENT]</span>
                           </div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-2 py-1 rounded flex justify-between items-center font-bold min-w-0">
+                          <div className="lcd-inv px-2 py-1 rounded flex justify-between items-center font-bold min-w-0">
                             <span className="shrink-0">TRAB:</span>
                             <span className="font-mono truncate max-w-[65%] overflow-hidden text-right">{inputBuffer}_</span>
                           </div>
@@ -4675,48 +5996,9 @@ export default function App() {
                       )}
 
                       {/* SUBMENÚ DATOS CONOCIDOS */}
-                      {screenState === 'KNOWN_MENU' && (
-                        <div className="space-y-0.5 font-mono text-xs">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
-                            <span>DATOS CONOCIDOS</span>
-                            <span className="text-[10px] text-neutral-800 font-bold">[{knownMenuSelection}/3]</span>
-                          </div>
-                          {[
-                            { id: 1, label: '1. Entrada Coords' },
-                            { id: 2, label: '2. Borrar' },
-                            { id: 3, label: '3. Ver' }
-                          ].map(item => (
-                            <div
-                              key={item.id}
-                              onClick={() => {
-                                setKnownMenuSelection(item.id);
-                                if (item.id === 1) {
-                                  setScreenState('KNOWN_INPUT');
-                                  setActiveField(0);
-                                  setInputBuffer(knownCoordsInput.Y);
-                                } else if (item.id === 2) {
-                                  setScreenState('KNOWN_DEL');
-                                  setSelectedKnownIdx(0);
-                                } else if (item.id === 3) {
-                                  setScreenState('KNOWN_VIEW');
-                                  setViewKnownIdx(0);
-                                }
-                              }}
-                              className={`px-1.5 py-1 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                knownMenuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                              }`}
-                            >
-                              <span>{item.label}</span>
-                              {knownMenuSelection === item.id && <span>[ENT]</span>}
-                            </div>
-                          ))}
-                          <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
-                            Seleccione opción y pulse [ENT]
-                          </div>
-                        </div>
-                      )}
+                      {screenState === 'KNOWN_MENU' &&
+                        renderLcdMenu('Datos Conocidos', KNOWN_ITEMS, knownMenuSelection - 1, i => abrirKnownItem(i + 1), `Tra.${jobClean(jobName)}`)}
 
-                      {/* 3. INTERFAZ DE ENTRADA COORDS (FORMULARIO ESTRICTO Y, X, Z, PTO) */}
                       {screenState === 'KNOWN_INPUT' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between pb-0.5">
@@ -4738,7 +6020,7 @@ export default function App() {
                                   setActiveField(idx);
                                 }}
                                 className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
-                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isCur ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span className="shrink-0">{item.label}:</span>
@@ -4771,7 +6053,7 @@ export default function App() {
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
                               <div className="flex justify-between items-center font-bold min-w-0">
                                 <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[selectedKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
+                                <span className="text-[10px] lcd-inv px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[selectedKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -4823,7 +6105,7 @@ export default function App() {
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
                               <div className="flex justify-between items-center font-bold min-w-0">
                                 <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
+                                <span className="text-[10px] lcd-inv px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -4859,7 +6141,7 @@ export default function App() {
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
                               <div className="flex justify-between items-center font-bold min-w-0">
                                 <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
+                                <span className="text-[10px] lcd-inv px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -4894,7 +6176,7 @@ export default function App() {
                                 key={item.label}
                                 onClick={() => setActiveField(idx)}
                                 className={`flex justify-between items-center px-1.5 py-0.2 rounded cursor-pointer min-w-0 ${
-                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isCur ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span className="shrink-0">{item.label}:</span>
@@ -4922,7 +6204,7 @@ export default function App() {
                             <div className="space-y-0.5 bg-black/5 p-1 rounded">
                               <div className="flex justify-between items-center font-bold min-w-0">
                                 <span className="truncate max-w-[65%] overflow-hidden">PTO: {knownPoints[viewKnownIdx]?.PTO}</span>
-                                <span className="text-[10px] bg-neutral-900 text-[#9CA3AF] px-1 rounded shrink-0 truncate max-w-[30%]">
+                                <span className="text-[10px] lcd-inv px-1 rounded shrink-0 truncate max-w-[30%]">
                                   {knownPoints[viewKnownIdx]?.CD || 'BASE'}
                                 </span>
                               </div>
@@ -4967,7 +6249,7 @@ export default function App() {
                                       key={item.id}
                                       onClick={() => setGraphicMenuIdx(realIdx)}
                                       className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] min-w-0 ${
-                                        isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                        isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                       }`}
                                     >
                                       <span className="truncate">{realIdx + 1}. {item.name}</span>
@@ -5017,11 +6299,11 @@ export default function App() {
                                   handleKeypadPress(String(item.id));
                                 }}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}</span>
-                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                                
                               </div>
                             );
                           })}
@@ -5034,30 +6316,27 @@ export default function App() {
                       {/* ESTADO 'REPL_DATA': DATOS DE REPLANT. (COORD: punto cargado con CARG / DISP: DistH y Ang H editables) */}
                       {screenState === 'REPL_DATA' && (
                         <div className="space-y-1 font-mono text-xs">
-                          <div className="font-bold text-[11px] border-b border-neutral-800/30 flex justify-between items-center pb-0.5">
-                            <span>DATOS DE REPLANT.</span>
-                            <span className="text-[10px] font-bold">[{replDisplayMode}]</span>
-                          </div>
-
-                          <div className="space-y-1 bg-black/5 p-2 rounded">
+                          <div className="space-y-0.5 px-0.5">
                             {replDisplayMode === 'COORD' ? (
                               <>
-                                <div className="font-bold text-neutral-900 text-xs border-b border-neutral-800/10 pb-0.5 flex justify-between">
-                                  <span>P Coord</span>
-                                  <span>{replPoint ? `PTO ${replPoint.PTO}` : 'F1=[CARG]'}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="font-bold">YP:</span>
-                                  <span className="font-mono font-bold">{replPoint ? replPoint.N.toFixed(3) : ''}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="font-bold">XP:</span>
-                                  <span className="font-mono font-bold">{replPoint ? replPoint.E.toFixed(3) : ''}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                  <span className="font-bold">ZP:</span>
-                                  <span className="font-mono font-bold">{replPoint ? replPoint.Z.toFixed(3) : ''}</span>
-                                </div>
+                                <div className="font-bold">REP Coord{replPoint ? `   PTO ${replPoint.PTO}` : ''}</div>
+                                {[
+                                  { label: 'XP:', f: 0, v: replPoint ? replPoint.E.toFixed(3) : '0.000' },
+                                  { label: 'YP:', f: 1, v: replPoint ? replPoint.N.toFixed(3) : '0.000' },
+                                  { label: 'ZP:', f: 2, v: replPoint ? replPoint.Z.toFixed(3) : '0.000' },
+                                  { label: 'HD', f: 3, v: `${target.HR.toFixed(3)}m` }
+                                ].map(row => (
+                                  <div
+                                    key={row.label}
+                                    onClick={() => { commitReplCoord(); setActiveField(row.f); }}
+                                    className="flex justify-between items-center text-xs cursor-pointer"
+                                  >
+                                    <span>{row.label}</span>
+                                    <span className={`px-0.5 ${activeField === row.f ? 'lcd-inv' : ''}`}>
+                                      {activeField === row.f && inputBuffer !== '' ? `${inputBuffer}_` : row.v}
+                                    </span>
+                                  </div>
+                                ))}
                               </>
                             ) : (
                               <>
@@ -5069,7 +6348,7 @@ export default function App() {
                                     key={row.label}
                                     onClick={() => { commitReplDispField(); setActiveField(i); }}
                                     className={`flex justify-between items-center text-xs px-1 rounded cursor-pointer ${
-                                      activeField === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
+                                      activeField === i ? 'lcd-inv font-black' : ''
                                     }`}
                                   >
                                     <span className="font-bold">{row.label}:</span>
@@ -5088,26 +6367,22 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'REPL_OBS': OBSERVACIÓN DE REPLANTEO (GD / AZ / HA-D) */}
+                      {/* ESTADO 'REPL_OBS': OBSERVACIÓN DE REPLANTEO (REG / DISP / ← → / MED) */}
                       {screenState === 'REPL_OBS' && (
-                        <div className="space-y-1 font-mono text-[13px] px-1 pt-1 font-bold">
+                        <div className="text-[13px] leading-[1.15] pr-1">
                           {medView === 'GHV' ? (
                             <>
-                              <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
-                              <div className="flex justify-between"><span>HD</span><span className="font-black">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
-                              <div className="flex justify-between"><span>VD</span><span className="font-black">{lastMeas ? `${lastMeas.VD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>GD</span><span>{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>HD</span><span>{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : ''}</span></div>
+                              <div className="flex justify-between"><span>VD</span><span>{lastMeas ? `${lastMeas.VD.toFixed(3)}m` : ''}</span></div>
                             </>
                           ) : (
                             <>
-                              <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
-                              <div>AZ  Rango exced.</div>
-                              <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
+                              <div className="text-right">{lastMeas ? `${lastMeas.HD.toFixed(3)}m` : '\u00A0'}</div>
+                              <div>{lastMeas ? 'HD' : '\u00A0'}</div>
+                              <div className={lastMeas ? 'flex justify-between' : 'flex gap-3'}><span>AV</span><span>{lastMeas ? formatDMS(lastMeas.V) : 'Rango exced.'}</span></div>
+                              <div className="flex justify-between"><span>HA-D</span><span>{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
                             </>
-                          )}
-                          {replPoint && (
-                            <div className="text-[9px] text-neutral-700 text-center pt-1 font-sans">
-                              Replanteo PTO {replPoint.PTO} • DistH {replDisp.distH.toFixed(3)}m • Ang H {formatDMS(replDisp.angH)}
-                            </div>
                           )}
                         </div>
                       )}
@@ -5134,11 +6409,11 @@ export default function App() {
                                   handleKeypadPress(String(item.id));
                                 }}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}</span>
-                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                                
                               </div>
                             );
                           })}
@@ -5186,7 +6461,7 @@ export default function App() {
                             >
                               <span className="w-28">{row.label}</span>
                               <span>:</span>
-                              <span className={`px-1 ${topoPttrn.field === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>{row.value}</span>
+                              <span className={`px-1 ${topoPttrn.field === i ? 'lcd-inv font-black' : ''}`}>{row.value}</span>
                             </div>
                           ))}
                         </div>
@@ -5200,7 +6475,7 @@ export default function App() {
                             <div
                               key={i}
                               onClick={() => setTopoModelIdx(i)}
-                              className={`flex gap-1 font-bold px-1 rounded cursor-pointer ${topoModelIdx === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                              className={`flex gap-1 font-bold px-1 rounded cursor-pointer ${topoModelIdx === i ? 'lcd-inv font-black' : ''}`}
                             >
                               <span>{String(i + 1).padStart(2, '0')}:</span>
                               <span>{m}</span>
@@ -5230,7 +6505,7 @@ export default function App() {
                                     key={c + idx}
                                     onClick={() => setCodeIdx(idx)}
                                     onDoubleClick={() => handleEnterPress()}
-                                    className={`px-1.5 py-[1px] rounded cursor-pointer font-bold ${codeIdx === idx ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}
+                                    className={`px-1.5 py-[1px] rounded cursor-pointer font-bold ${codeIdx === idx ? 'lcd-inv font-black' : ''}`}
                                   >
                                     {c}
                                   </div>
@@ -5250,7 +6525,7 @@ export default function App() {
                       {screenState === 'CODE_ADD' && (
                         <div className="font-mono text-[13px] px-1 pt-0.5 space-y-0.5 font-bold">
                           <div>Cd</div>
-                          <div className="bg-neutral-900 text-[#9CA3AF] px-1.5 rounded font-black">:{codeSearchBuffer}</div>
+                          <div className="lcd-inv px-1.5 rounded font-black">:{codeSearchBuffer}</div>
                           <div>Operador</div>
                           <div>:{stationAtm.operador}</div>
                           <div className="text-center pt-1 font-black">Sob.escri?</div>
@@ -5272,11 +6547,11 @@ export default function App() {
                               key={item.id}
                               onClick={() => { setMenuSelection(item.id); handleKeypadPress(String(item.id)); }}
                               className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
-                                menuSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                menuSelection === item.id ? 'lcd-inv font-black' : 'hover:bg-black/10'
                               }`}
                             >
                               <span>{item.label}</span>
-                              {menuSelection === item.id && <span>[ENT]</span>}
+                              
                             </div>
                           ))}
                           <div className="text-[10px] text-neutral-700 text-center pt-1 font-sans">
@@ -5327,7 +6602,7 @@ export default function App() {
                                   return (
                                     <div key={item.label} onClick={() => { commitCurrentField(); setActiveField(f); }} className="cursor-pointer">
                                       <div className="px-1.5 font-bold">{item.label}</div>
-                                      <div className={`px-1.5 py-0.5 rounded min-w-0 truncate ${isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>
+                                      <div className={`px-1.5 py-0.5 rounded min-w-0 truncate ${isCur ? 'lcd-inv font-black' : ''}`}>
                                         :{item.value}
                                       </div>
                                     </div>
@@ -5338,7 +6613,7 @@ export default function App() {
                                     key={item.label}
                                     onClick={() => { commitCurrentField(); setActiveField(f); }}
                                     className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
-                                      isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                      isCur ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                     }`}
                                   >
                                     <span className="shrink-0">{item.label}:</span>
@@ -5377,7 +6652,7 @@ export default function App() {
                                     onClick={() => setSelectedOccLoadIdx(realIdx)}
                                     onDoubleClick={() => handleEnterPress()}
                                     className={`flex items-center gap-3 px-1.5 py-[1px] rounded cursor-pointer min-w-0 ${
-                                      isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                      isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                     }`}
                                   >
                                     <span className="w-9 shrink-0 font-bold">{rec.tag}</span>
@@ -5406,7 +6681,7 @@ export default function App() {
                               key={row.label}
                               onClick={() => setSearchField(i)}
                               className={`flex items-center gap-2 px-1.5 py-0.5 rounded cursor-pointer min-w-0 ${
-                                searchField === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
+                                searchField === i ? 'lcd-inv font-black' : ''
                               }`}
                             >
                               <span className="shrink-0 font-bold w-20">{row.label}</span>
@@ -5459,15 +6734,15 @@ export default function App() {
                               Lect.Ref
                             </div>
                             <div className="text-left font-mono py-0.5 border-b border-neutral-800/10 font-bold text-neutral-900">
-                              AZ Rango exced.
+                              AV Rango exced.
                             </div>
                             <div className="text-left font-mono py-0.5 border-b border-neutral-800/10">
                               HA-D
                             </div>
                             <div className="flex items-center gap-2 text-left font-mono py-0.5">
                               <span className="shrink-0">HA-D</span>
-                              <span className="inline-flex items-center bg-neutral-900 text-[#9CA3AF] px-2 py-0.5 min-w-[70px] h-[18px] rounded-sm shadow-inner font-mono text-[11px] font-bold">
-                                {inputBuffer !== '' ? `${inputBuffer}_` : <span className="inline-block w-1.5 h-3 bg-[#9CA3AF]/80 animate-pulse" />}
+                              <span className="inline-flex items-center lcd-inv px-2 py-0.5 min-w-[70px] h-[18px] rounded-sm shadow-inner font-mono text-[11px] font-bold">
+                                {inputBuffer !== '' ? `${inputBuffer}_` : <span className="inline-block w-1.5 h-3 bg-current animate-pulse" />}
                               </span>
                             </div>
                           </div>
@@ -5495,11 +6770,11 @@ export default function App() {
                                 key={item.id}
                                 onClick={() => handleKeypadPress(String(item.id))}
                                 className={`px-2 py-0.5 rounded cursor-pointer flex items-center justify-between ${
-                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}</span>
-                                {isSel && <span>[ENT]</span>}
+                                
                               </div>
                             );
                           })}
@@ -5509,13 +6784,13 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* ESTADO 'TRISEC_PT': Trisecn. 1ro Pto (después de nivelar en ComPen) */}
+                      {/* ESTADO 'TRISEC_PT': Triseccn. 1roPto (F3 = ANGUL, F4 = MED) */}
                       {screenState === 'TRISEC_PT' && (
-                        <div className="space-y-1 font-mono text-[13px] px-1 pt-0.5 font-bold">
-                          <div className="font-black">Trisecn.   1ro Pto</div>
-                          <div className="flex justify-between"><span>GD</span><span className="font-black">{lastMeas ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
-                          <div>AZ  Rango exced.</div>
-                          <div className="flex justify-between"><span>HA-D</span><span className="font-black">{lastMeas ? formatDMS(lastMeas.HA) : ''}</span></div>
+                        <div className="text-[13px] leading-[1.15] pr-1">
+                          <div className="flex gap-6"><span>Triseccn.</span><span>1roPto</span></div>
+                          <div className="flex justify-between"><span>GD</span><span>{lastMeas && trisecAng ? `${lastMeas.SD.toFixed(3)}m` : ''}</span></div>
+                          <div className={trisecAng ? 'flex justify-between' : 'flex gap-3'}><span>AV</span><span>{trisecAng ? formatDMS(trisecAng.V) : 'Rango exced.'}</span></div>
+                          <div className="flex justify-between"><span>HA-D</span><span>{trisecAng ? formatDMS(trisecAng.HA) : ''}</span></div>
                         </div>
                       )}
 
@@ -5530,7 +6805,7 @@ export default function App() {
                             <div key={row.label} className="flex items-center gap-2 font-bold">
                               <span className="w-28">{row.label}</span>
                               <span>:</span>
-                              <span className={`px-1 ${trisecAj.field === i ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>{row.value}</span>
+                              <span className={`px-1 ${trisecAj.field === i ? 'lcd-inv font-black' : ''}`}>{row.value}</span>
                             </div>
                           ))}
                           <div className="text-[9px] text-neutral-700 text-center pt-2 font-sans">
@@ -5554,7 +6829,7 @@ export default function App() {
                                 key={item.label}
                                 onClick={() => { commitCurrentField(); setActiveField(idx); }}
                                 className={`flex justify-between items-center px-1.5 py-0.5 rounded cursor-pointer min-w-0 font-bold ${
-                                  isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isCur ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span className="shrink-0">{item.label}</span>
@@ -5660,7 +6935,7 @@ export default function App() {
                                 >
                                   <span className="w-24 shrink-0">{row.label}</span>
                                   <span>:</span>
-                                  <span className={`px-1 truncate ${isCur ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''}`}>
+                                  <span className={`px-1 truncate ${isCur ? 'lcd-inv font-black' : ''}`}>
                                     {row.value}
                                   </span>
                                 </div>
@@ -5673,8 +6948,33 @@ export default function App() {
                         );
                       })()}
 
+                      {/* ESTADO 'DESPLZ_MENU' desde Observación: Despl (Despl/Dist, Despl/Ang, Despl./2D) con su dibujo */}
+                      {screenState === 'DESPLZ_MENU' && desplzReturn === 'OBS' && (
+                        <div className="flex text-[13px] leading-[1.15]">
+                          <div className="flex-1">
+                            <div>DesPl</div>
+                            {['DesPl/Dist', 'DesPl/Ang', 'DesPl./2D'].map((l, i) => (
+                              <div key={l} className="pl-3 cursor-pointer" onClick={() => setDesplzMenuSelection(i + 1)}>
+                                <span className={desplzMenuSelection === i + 1 ? 'lcd-inv px-0.5' : 'px-0.5'}>{l}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <svg viewBox="0 0 90 70" className="w-[92px] h-[72px]" fill="none" stroke="currentColor" strokeWidth="1.4">
+                            <text x="14" y="12" fontSize="10" fill="currentColor" stroke="none">L</text>
+                            <text x="62" y="12" fontSize="10" fill="currentColor" stroke="none">Out</text>
+                            <text x="4" y="44" fontSize="10" fill="currentColor" stroke="none">In</text>
+                            <text x="80" y="44" fontSize="10" fill="currentColor" stroke="none">R</text>
+                            <line x1="20" y1="14" x2="70" y2="40" strokeDasharray="3 2" />
+                            <line x1="70" y1="14" x2="18" y2="40" strokeDasharray="3 2" />
+                            <circle cx="44" cy="27" r="3" fill="currentColor" />
+                            <rect x="36" y="48" width="12" height="18" />
+                            <line x1="42" y1="48" x2="44" y2="30" />
+                          </svg>
+                        </div>
+                      )}
+
                       {/* ESTADO 'DESPLZ_MENU': MENÚ DESPLAZAMIENTO */}
-                      {screenState === 'DESPLZ_MENU' && (
+                      {screenState === 'DESPLZ_MENU' && desplzReturn !== 'OBS' && (
                         <div className="space-y-0.5 font-mono text-xs">
                           <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
                             <span>--- DESPLZ ---</span>
@@ -5702,11 +7002,11 @@ export default function App() {
                                   }
                                 }}
                                 className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}</span>
-                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                                
                               </div>
                             );
                           })}
@@ -5717,42 +7017,8 @@ export default function App() {
                       )}
 
                       {/* 3. ESTADO 'USB_MENU': MENÚ USB PANTALLA 1 (TIPO T / TIPO S) */}
-                      {screenState === 'USB_MENU' && (
-                        <div className="space-y-1 font-mono text-xs px-1">
-                          <div className="font-bold border-b border-neutral-800/30 text-center pb-0.5 uppercase tracking-wide flex justify-between items-center text-[11px]">
-                            <span>--- MENÚ USB ---</span>
-                            <span className="text-[10px] text-neutral-800 font-bold">[{usbMenuSelection}/2]</span>
-                          </div>
-                          <div className="space-y-1 pt-1">
-                            {[
-                              { id: 1, label: '1. Tipo T' },
-                              { id: 2, label: '2. Tipo S' }
-                            ].map(item => {
-                              const isSel = usbMenuSelection === item.id;
-                              return (
-                                <div
-                                  key={item.id}
-                                  onClick={() => {
-                                    setUsbMenuSelection(item.id);
-                                    setUsbTypeMode(item.id === 1 ? 'T' : 'S');
-                                    setScreenState('USB_TTYPE');
-                                    setUsbTTypeSelection(1);
-                                  }}
-                                  className={`px-2 py-1 rounded cursor-pointer flex items-center justify-between text-xs ${
-                                    isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
-                                  }`}
-                                >
-                                  <span>{item.label}</span>
-                                  {isSel && <span className="text-[10px]">[ENT]</span>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="text-[10px] text-neutral-800 text-center pt-2 font-mono">
-                            ▲ ▼ Seleccionar - [ENT] Entrar
-                          </div>
-                        </div>
-                      )}
+                      {screenState === 'USB_MENU' &&
+                        renderLcdMenu('USB', ['tiPo T', 'tiPo S'], usbMenuSelection - 1, i => handleKeypadPress(String(i + 1)))}
 
                       {/* ESTADO 'USB_TTYPE': MENÚ USB PANTALLA 2 (TIPO T / TIPO S) */}
                       {screenState === 'USB_TTYPE' && (
@@ -5788,15 +7054,15 @@ export default function App() {
                                   }
                                 }}
                                 className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                  isSel ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                  isSel ? 'lcd-inv font-black' : 'hover:bg-black/10'
                                 }`}
                               >
                                 <span>{item.label}</span>
-                                {isSel && <span className="text-[10px]">[ENT]</span>}
+                                
                               </div>
                             );
                           })}
-                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-mono">
+                          <div className="text-[10px] text-neutral-800 text-center pt-1 font-mono lcd-hint">
                             ▲ ▼ Seleccionar - [ENT] Entrar
                           </div>
                         </div>
@@ -5822,17 +7088,17 @@ export default function App() {
                                     onClick={() => setSelectedJobIdx(globalIdx)}
                                     className={`px-2 py-0.5 rounded cursor-pointer flex justify-between items-center text-xs min-w-0 font-mono ${
                                       isSelected
-                                        ? 'bg-neutral-900 text-[#9CA3AF] font-black'
+                                        ? 'lcd-inv font-black'
                                         : 'hover:bg-black/10 text-neutral-900 font-semibold'
                                     }`}
                                   >
                                     <span className="truncate max-w-[80%] overflow-hidden">{job}</span>
-                                    {isSelected && <span className="text-[10px] font-mono shrink-0">[ENT]</span>}
+                                    
                                   </div>
                                 );
                               })}
                             </div>
-                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate">
+                            <div className="text-[9.5px] text-neutral-800 text-center pt-0.5 font-mono truncate lcd-hint">
                               * No exportado a USB - [ENT] Seleccionar Trabajo
                             </div>
                           </div>
@@ -5863,11 +7129,11 @@ export default function App() {
                                 }
                               }}
                               className={`px-1.5 py-0.5 rounded cursor-pointer flex items-center justify-between text-[11px] ${
-                                usbFormatSelection === item.id ? 'bg-neutral-900 text-[#9CA3AF] font-black' : 'hover:bg-black/10'
+                                usbFormatSelection === item.id ? 'lcd-inv font-black' : 'hover:bg-black/10'
                               }`}
                             >
                               <span>{item.label}</span>
-                              {usbFormatSelection === item.id && <span className="text-[10px]">[ENT]</span>}
+                              
                             </div>
                           ))}
                           <div className="text-[9px] text-neutral-700 text-center pt-0.5 font-sans">
@@ -5876,7 +7142,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* 1. ESTADO 'OBS': OBSERVACIÓN (Y, X, Z / HD = altura de prisma editable / PTO / Cd) */}
+                      {/* 1. ESTADO 'OBS': OBSERVACIÓN como el equipo: X, Y, Z, HD (altura prisma), Cd — y PTO en su propia pantalla */}
                       {screenState === 'OBS' && (() => {
                         const radV = envV * (Math.PI / 180);
                         let liveAz = azimutInicial + envHD;
@@ -5886,48 +7152,38 @@ export default function App() {
                         const liveDV = envSD * Math.cos(radV);
                         const bufHR = parseFloat(inputBuffer);
                         const hr = activeField === 2 && !isNaN(bufHR) ? bufHR : target.HR;
+                        const show = obsMeasured || obsShotFlash;
                         const liveY = station.N + (liveDH * Math.cos(liveAzRad));
                         const liveX = station.E + (liveDH * Math.sin(liveAzRad));
                         const liveZ = station.Z + station.HI + liveDV - hr;
-                        const editRows = [
-                          { f: 2, label: 'HD', value: activeField === 2 ? `${inputBuffer}_` : `${target.HR.toFixed(3)}m` },
-                          { f: 0, label: 'PTO', value: activeField === 0 ? `${inputBuffer}_` : target.PTO },
-                          { f: 1, label: 'Cd', value: activeField === 1 ? `${inputBuffer}_` : target.CD }
-                        ];
-                        // Se muestran 2 de los 3 campos editables (como en el equipo, se desplaza con ▲ ▼)
-                        const visibleRows = activeField === 1 ? editRows.slice(1) : editRows.slice(0, 2);
+                        const cell = (f: number, normal: string) => (
+                          <span
+                            onClick={() => { commitCurrentField(); setActiveField(f); }}
+                            className={`flex-1 text-right px-0.5 cursor-pointer truncate ${activeField === f ? 'lcd-inv' : ''}`}
+                          >
+                            {activeField === f ? `${inputBuffer}_` : normal}
+                          </span>
+                        );
 
+                        if (activeField === 0) {
+                          // Pantalla de PTO
+                          return (
+                            <div className="text-[13px] leading-[1.15] pr-1">
+                              <div className="flex gap-2">
+                                <span className="w-10 shrink-0">PTO</span>
+                                {cell(0, target.PTO)}
+                              </div>
+                              {obsShotFlash && <div className="pt-6 text-center">Registrado</div>}
+                            </div>
+                          );
+                        }
                         return (
-                          <div className="space-y-0.5 font-mono text-[13px] px-0.5">
-                            {[
-                              { label: 'Y', value: obsMeasured || obsShotFlash ? `${liveY.toFixed(3)}m` : '' },
-                              { label: 'X', value: obsMeasured || obsShotFlash ? `${liveX.toFixed(3)}m` : '' },
-                              { label: 'Z', value: obsMeasured || obsShotFlash ? `${liveZ.toFixed(3)}m` : '' }
-                            ].map(row => (
-                              <div key={row.label} className="flex justify-between font-bold px-1">
-                                <span>{row.label}</span>
-                                <span className="font-black">{row.value}</span>
-                              </div>
-                            ))}
-                            {visibleRows.map(row => (
-                              <div
-                                key={row.label}
-                                onClick={() => { commitCurrentField(); setActiveField(row.f); }}
-                                className="flex items-center gap-2 font-bold px-1 cursor-pointer min-w-0"
-                              >
-                                <span className="w-9 shrink-0">{row.label}</span>
-                                <span
-                                  className={`flex-1 text-right px-1 rounded truncate ${
-                                    activeField === row.f ? 'bg-neutral-900 text-[#9CA3AF] font-black' : ''
-                                  }`}
-                                >
-                                  {row.value}
-                                </span>
-                              </div>
-                            ))}
-                            {obsShotFlash && (
-                              <div className="text-center text-[10px] font-black">*** PUNTO REGISTRADO ***</div>
-                            )}
+                          <div className="text-[13px] leading-[1.15] pr-1">
+                            <div className="flex justify-between"><span>X</span><span>{show ? liveX.toFixed(3) : ''}</span></div>
+                            <div className="flex justify-between"><span>Y</span><span>{show ? liveY.toFixed(3) : ''}</span></div>
+                            <div className="flex justify-between"><span>Z</span><span>{show ? liveZ.toFixed(3) : ''}</span></div>
+                            <div className="flex gap-2"><span className="w-10 shrink-0">HD</span>{cell(2, `${target.HR.toFixed(3)}m`)}</div>
+                            <div className="flex gap-2"><span className="w-10 shrink-0">Cd</span>{cell(1, target.CD)}</div>
                           </div>
                         );
                       })()}
@@ -5935,15 +7191,32 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 3. BASE LCD: 4 ETIQUETAS DINÁMICAS (F1-F4) */}
-                <div className="grid grid-cols-4 gap-1 pt-1 border-t border-neutral-800/30 text-center font-black text-[11px]">
+                {/* Iconos del LCD real: batería, compensador, página de MED y modo de entrada */}
+                <div className="w-[16px] shrink-0 flex flex-col items-center gap-1 pt-0.5 text-neutral-950" aria-hidden="true">
+                  <svg viewBox="0 0 10 16" className="w-[9px] h-[14px]" fill="currentColor">
+                    <rect x="3" y="0" width="4" height="2" />
+                    <rect x="0.5" y="2" width="9" height="13.5" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    <rect x="2" y="4" width="6" height="10" />
+                  </svg>
+                  {cfg['obs.compens'] !== 'No' && (
+                    <svg viewBox="0 0 14 14" className="w-[12px] h-[12px]" fill="none" stroke="currentColor" strokeWidth="1.4">
+                      <rect x="1" y="1" width="12" height="12" />
+                      <line x1="7" y1="1" x2="7" y2="13" />
+                      <line x1="1" y1="7" x2="13" y2="7" />
+                    </svg>
+                  )}
+                  {screenState === 'MED' && <span className="lcd-inv text-[11px] leading-none px-[1px]">P{medPage}</span>}
+                  {isCurrentFieldAlpha && (
+                    <span className="lcd-inv text-[11px] leading-none px-[2px]">{inputMode === 'ALF' ? 'A' : inputMode === 'SIM' ? 'S' : '1'}</span>
+                  )}
+                  {cfg['plomLaser'] === 'On' && <span className="text-[11px] leading-none">✶</span>}
+                </div>
+                </div>
+
+                {/* 3. BASE LCD: 4 ETIQUETAS DINÁMICAS (F1-F4) — invertidas como en el equipo */}
+                <div className="grid grid-cols-4 gap-1 pt-1 text-center text-[13px] leading-none">
                   {fLabels.map((lbl, idx) => (
-                    <div
-                      key={idx}
-                      className={`py-0.5 rounded border border-neutral-900/40 text-neutral-950 font-bold ${
-                        lbl ? 'bg-neutral-800/20' : 'bg-transparent'
-                      }`}
-                    >
+                    <div key={idx} className={`py-[3px] rounded-[2px] truncate ${lbl ? 'lcd-inv' : ''}`}>
                       {lbl || '\u00A0'}
                     </div>
                   ))}
@@ -6134,10 +7407,14 @@ export default function App() {
                       <span className="text-base font-black">◄</span>
                     </button>
 
-                    {/* Centro D-Pad */}
-                    <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-300 shadow-inner flex items-center justify-center pointer-events-none">
+                    {/* Centro D-Pad: botón (cambia el valor en pantallas de ajustes, como el equipo) */}
+                    <button
+                      onClick={() => { playBeep(1050, 0.04); overrideRef.current?.center(); }}
+                      className="w-8 h-8 rounded-full bg-gray-100 hover:bg-white active:scale-90 border border-gray-300 shadow-inner flex items-center justify-center cursor-pointer transition-transform"
+                      title="Centro: cambiar valor"
+                    >
                       <div className="w-2.5 h-2.5 rounded-full bg-gray-400"></div>
-                    </div>
+                    </button>
 
                     {/* Flecha DERECHA */}
                     <button
@@ -6175,9 +7452,17 @@ export default function App() {
 
             {/* Pie de chasis con estado de nivel */}
             <div className="flex items-center justify-between pt-2 border-t border-neutral-800 text-[10px] text-neutral-400">
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                Compensador Bi-axial Calibrado
+              <span className="flex items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Compensador Bi-axial Calibrado
+                </span>
+                {cfg['plomLaser'] === 'On' && (
+                  <span className="flex items-center gap-1 text-rose-400 font-bold">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_2px_rgba(244,63,94,0.8)] animate-pulse"></span>
+                    Plomada láser ON (Niv. {cfg['nivLaser']})
+                  </span>
+                )}
               </span>
               <span className="font-mono text-[9px] text-neutral-500">
                 TOPCON POSITIONING SYSTEMS, INC.

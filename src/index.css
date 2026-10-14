@@ -32,3 +32,87 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #AFA492;
 }
+
+/* =========================================================================
+   LCD ESTILO EQUIPO REAL (Topcon ES-105): retroiluminación verde,
+   letra de matriz de puntos (VT323, licencia SIL OFL) y etiquetas invertidas
+   ========================================================================= */
+@font-face {
+  font-family: 'LCD ES105';
+  src: url('/fonts/vt323-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.lcd-screen {
+  --lcd-bg: #a9c46c;
+  --lcd-ink: #1b2410;
+  background-color: var(--lcd-bg);
+  color: var(--lcd-ink);
+  background-image:
+    radial-gradient(rgba(20, 30, 8, 0.07) 1px, transparent 0),
+    linear-gradient(180deg, rgba(255, 255, 210, 0.18), rgba(0, 0, 0, 0.06));
+  background-size: 3px 3px, 100% 100%;
+  box-shadow: inset 0 0 18px rgba(30, 45, 10, 0.35);
+}
+.lcd-screen.lcd-off {
+  --lcd-bg: #7f9150;
+}
+.lcd-screen,
+.lcd-screen .font-mono,
+.lcd-screen .font-sans {
+  font-family: 'LCD ES105', 'Courier New', monospace !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.02em;
+}
+.lcd-screen .font-bold,
+.lcd-screen .font-black,
+.lcd-screen .font-semibold,
+.lcd-screen .font-extrabold {
+  font-weight: 400 !important;
+}
+.lcd-screen * {
+  color: inherit;
+}
+.lcd-screen [class*='text-neutral-'] {
+  color: var(--lcd-ink) !important;
+}
+/* Fondo del LCD para capas superpuestas (Estrella) */
+.lcd-bg {
+  background-color: var(--lcd-bg);
+}
+/* Texto invertido (selección y softkeys) */
+.lcd-screen .lcd-inv,
+.lcd-inv {
+  background-color: var(--lcd-ink) !important;
+  color: var(--lcd-bg) !important;
+}
+.lcd-screen .lcd-inv * {
+  color: var(--lcd-bg) !important;
+}
+/* Sin bordes ni sombreados de interfaz web dentro del LCD */
+.lcd-screen [class*='border-neutral-800'] {
+  border-color: rgba(27, 36, 16, 0.25) !important;
+}
+.lcd-screen [class*='bg-black/'] {
+  background-color: transparent !important;
+}
+/* Escala tipográfica: la letra de matriz de puntos necesita más tamaño */
+.lcd-screen .text-\[8px\] { font-size: 11px !important; }
+.lcd-screen .text-\[9px\] { font-size: 12px !important; }
+.lcd-screen .text-\[9\.5px\] { font-size: 12px !important; }
+.lcd-screen .text-\[10px\] { font-size: 14px !important; }
+.lcd-screen .text-\[11px\] { font-size: 16px !important; }
+.lcd-screen .text-xs { font-size: 17px !important; line-height: 1.12 !important; }
+.lcd-screen .text-\[12px\] { font-size: 17px !important; }
+.lcd-screen .text-\[13px\] { font-size: 19px !important; line-height: 1.12 !important; }
+.lcd-screen .text-\[14px\] { font-size: 20px !important; }
+.lcd-screen .text-sm { font-size: 20px !important; }
+.lcd-screen .text-\[15px\] { font-size: 21px !important; }
+.lcd-screen .text-\[16px\] { font-size: 22px !important; }
+/* Las líneas de ayuda del simulador no existen en el equipo real */
+.lcd-screen .lcd-hint,
+.lcd-screen .font-sans {
+  display: none !important;
+}
